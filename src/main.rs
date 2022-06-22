@@ -1,3 +1,7 @@
+extern crate blockchain;
+
+use blockchain::run;
+
 fn main() {
-    println!("Hello, world!");
+    run();
 }
