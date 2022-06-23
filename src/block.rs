@@ -33,6 +33,14 @@ impl Block {
             data,
         )
     }
+
+    pub fn calculate_hash(&self) -> String {
+        calculate_hash(self.index, &self.previous_hash, self.timestamp, &self.data)
+    }
+
+    pub fn get_is_valid_structure(&self) -> bool {
+        !self.hash.is_empty() && !self.previous_hash.is_empty() && !self.data.is_empty()
+    }
 }
 
 impl fmt::Debug for Block {
@@ -47,12 +55,36 @@ fn calculate_hash(index: u64, previous_hash: &str, timestamp: i64, data: &str) -
     format!("{:x}", hasher.finalize())
 }
 
+pub fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
+    if !new_block.get_is_valid_structure() {
+        return false;
+    }
+
+    if previous_block.index + 1 != new_block.index {
+        return false;
+    }
+
+    if previous_block.hash != new_block.previous_hash {
+        return false;
+    }
+
+    if new_block.calculate_hash() != new_block.hash {
+        return false;
+    }
+
+    true
+}
+
+pub fn get_latest_block(blockchain: &[Block]) -> &Block {
+    blockchain.last().unwrap()
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     #[test]
-    fn get_hash() {
+    fn test_calculate_hash() {
         let hash = calculate_hash(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D",
@@ -64,7 +96,7 @@ mod test {
     }
 
     #[test]
-    fn gen_one() {
+    fn test_block_generate() {
         let previous = Block::new(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
@@ -79,5 +111,97 @@ mod test {
         assert_eq!(next.timestamp, timestamp);
         assert_eq!(next.hash, calculate_hash(1, &previous.hash, timestamp, &data));
         assert_eq!(next.data, data);
+    }
+
+    #[test]
+    fn test_block_calculate_hash() {
+        let block = Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "prev block".to_string(),
+        );
+        assert_eq!(block.calculate_hash(), calculate_hash(0, "", 1465154705, "prev block"));
+    }
+
+    #[test]
+    fn test_block_validate() {
+        let invalid = Block::new(
+            0,
+            "".to_string(),
+            "valid".to_string(),
+            1465154705,
+            "valid".to_string(),
+        );
+        assert!(!invalid.get_is_valid_structure());
+
+        let invalid = Block::new(
+            0,
+            "valid".to_string(),
+            "".to_string(),
+            1465154705,
+            "valid".to_string(),
+        );
+        assert!(!invalid.get_is_valid_structure());
+
+        let invalid = Block::new(
+            0,
+            "valid".to_string(),
+            "valid".to_string(),
+            1465154705,
+            "".to_string(),
+        );
+        assert!(!invalid.get_is_valid_structure());
+
+        let invalid = Block::new(
+            0,
+            "valid".to_string(),
+            "valid".to_string(),
+            1465154705,
+            "valid".to_string(),
+        );
+        assert!(invalid.get_is_valid_structure());
+    }
+
+    #[test]
+    fn test_new_block_validate() {
+        let previous = Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "prev block".to_string(),
+        );
+        let next = Block::generate("next block".to_string(), &previous);
+        assert!(get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous);
+        next.index = 2;
+        assert!(!get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous);
+        next.hash = "invalid".to_string();
+        assert!(!get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous);
+        next.previous_hash = "invalid".to_string();
+        assert!(!get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous);
+        next.data = "invalid".to_string();
+        assert!(!get_is_valid_new_block(&next, &previous));
+    }
+
+    #[test]
+    fn test_get_last_block() {
+        let blockchain = [Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "prev block".to_string(),
+        )];
+        assert_eq!(get_latest_block(&blockchain) as *const Block, blockchain.last().unwrap() as *const Block);
     }
 }
