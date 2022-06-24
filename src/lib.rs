@@ -1,4 +1,5 @@
 pub mod block;
+pub mod errors;
 
 use crate::block::Block;
 

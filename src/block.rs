@@ -1,6 +1,7 @@
 use std::fmt;
 use sha2::{Sha256, Digest};
 use chrono::{Utc};
+use crate::errors::AppError;
 
 pub struct Block {
     pub index: u64,
@@ -55,7 +56,7 @@ fn calculate_hash(index: u64, previous_hash: &str, timestamp: i64, data: &str) -
     format!("{:x}", hasher.finalize())
 }
 
-pub fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
+fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
     if !new_block.get_is_valid_structure() {
         return false;
     }
@@ -77,6 +78,14 @@ pub fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool
 
 pub fn get_latest_block(blockchain: &[Block]) -> &Block {
     blockchain.last().unwrap()
+}
+
+pub fn add_block(blockchain: &[Block], new_block: &Block) -> Result<(), AppError> {
+    if !get_is_valid_new_block(new_block, get_latest_block(blockchain)) {
+        Err(AppError::new(1000))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -203,5 +212,23 @@ mod test {
             "prev block".to_string(),
         )];
         assert_eq!(get_latest_block(&blockchain) as *const Block, blockchain.last().unwrap() as *const Block);
+    }
+
+    #[test]
+    fn test_add_block() {
+        let blockchain = [Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "prev block".to_string(),
+        )];
+        let previous = get_latest_block(&blockchain);
+        let next = Block::generate("next block".to_string(), previous);
+        assert!(add_block(&blockchain, &next).is_ok());
+
+        let mut next = Block::generate("next block".to_string(), previous);
+        next.data = "invalid".to_string();
+        assert!(add_block(&blockchain, &next).is_err());
     }
 }
