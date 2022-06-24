@@ -3,6 +3,10 @@ pub mod errors;
 
 use crate::block::Block;
 
+/// # Rust Blockchain
+///
+/// A library for studying rust and blockchain.
+
 pub fn run() {
     let genesis_block: Block = Block::new(
         0,
