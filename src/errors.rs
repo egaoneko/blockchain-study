@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug)] // derive std::fmt::Debug on AppError
+#[derive(Debug)]
 pub struct AppError {
     code: usize,
 }
