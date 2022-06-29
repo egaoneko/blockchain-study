@@ -1,10 +1,12 @@
 use std::fmt;
 use sha2::{Sha256, Digest};
 use chrono::{Utc};
+use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
 
 /// Block in blockchain has sequence, data, time, and so on.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Block {
     /// Sequence in blockchain
     pub index: u64,
@@ -111,12 +113,6 @@ impl Block {
     /// ```
     pub fn get_is_valid_structure(&self) -> bool {
         !self.hash.is_empty() && !self.previous_hash.is_empty() && !self.data.is_empty()
-    }
-}
-
-impl fmt::Debug for Block {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Block {{ index: {}, hash: {}, previous_hash: {}, timestamp: {}, data: {} }}", self.index, self.hash, self.previous_hash, self.timestamp, self.data)
     }
 }
 

@@ -1,9 +1,14 @@
 pub mod block;
 pub mod errors;
 pub mod config;
+mod socket;
+mod events;
+mod connection;
 
 use crate::block::Block;
 use crate::config::Config;
+use crate::socket::launch_server;
+use std::sync::{Arc, RwLock};
 
 /// # Rust Blockchain
 ///
@@ -17,7 +22,9 @@ pub fn run(config: Config) {
         1465154705,
         "gene block".to_string(),
     );
-    let blockchain: Vec<Block> = vec![genesis_block];
+    let blockchain: Arc<RwLock<Vec<Block>>> = Arc::new(RwLock::new(vec![genesis_block]));
 
     println!("{:?}{:?}", blockchain, config);
+
+    launch_server(&config, &blockchain);
 }
