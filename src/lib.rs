@@ -1,14 +1,23 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+extern crate rocket_cors;
+
+use std::sync::{Arc, RwLock};
+
 pub mod block;
 pub mod errors;
 pub mod config;
 mod socket;
 mod events;
 mod connection;
+mod http;
+mod routes;
 
 use crate::block::Block;
 use crate::config::Config;
 use crate::socket::launch_server;
-use std::sync::{Arc, RwLock};
+use crate::http::launch_http;
 
 /// # Rust Blockchain
 ///
@@ -26,5 +35,6 @@ pub fn run(config: Config) {
 
     println!("{:?}{:?}", blockchain, config);
 
-    launch_server(&config, &blockchain);
+    launch_http(&config, &blockchain);
+    // launch_server(&config, &blockchain);
 }

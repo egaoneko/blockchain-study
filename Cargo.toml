@@ -24,7 +24,7 @@ default-features = false
 features = ["async-await", "sink", "std"]
 
 [dependencies.uuid]
-version = "1.1.2"
+version = "1.1"
 features = ["v4"]
 
 [dependencies.serde]
@@ -33,3 +33,12 @@ features = ["derive"]
 
 [dependencies.serde_json]
 version = "1.0"
+
+[dependencies.rocket]
+version = "0.4"
+
+[dependencies.rocket_cors]
+version = "0.5"
+
+[dependencies.rocket_contrib]
+version = "0.4"

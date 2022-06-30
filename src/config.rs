@@ -1,6 +1,3 @@
-use std::fmt;
-use uuid::Uuid;
-
 const DEFAULT_ROLE: &str = "server";
 const DEFAULT_WEBSOCKET_PORT: &str = "2794";
 
@@ -26,7 +23,7 @@ impl Config {
     /// use blockchain::config::{Config};
     /// let config = Config::new(&vec!["server".to_string(), "2794".to_string()], "67e55044-10b1-426f-9247-bb680e5fe0c8".to_string());
     /// ```
-    pub fn new(args: &[String], uuid: String) -> Config {
+    pub fn new(args: &Vec<String>, uuid: String) -> Config {
         match args.len() {
             1 => Config { role: DEFAULT_ROLE.to_string(), port:DEFAULT_WEBSOCKET_PORT.to_string(), uuid },
             2 => {

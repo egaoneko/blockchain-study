@@ -1,4 +1,3 @@
-use std::fmt;
 use sha2::{Sha256, Digest};
 use chrono::{Utc};
 use serde::{Serialize, Deserialize};

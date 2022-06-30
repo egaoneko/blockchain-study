@@ -1,15 +1,12 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::task::unconstrained;
 use std::{thread, time};
-use std::borrow::BorrowMut;
 use std::sync::{Arc, RwLock};
-use futures_util::{FutureExt, SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 
 use crate::{Block, Config};
 use crate::block::get_latest_block;
