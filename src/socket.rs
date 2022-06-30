@@ -4,8 +4,8 @@ use tokio_tungstenite::WebSocketStream;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use std::{thread, time};
 use std::sync::{Arc, RwLock};
+use std::{thread, time};
 use futures_util::{SinkExt, StreamExt};
 
 use crate::{Block, Config};
@@ -13,7 +13,7 @@ use crate::block::get_latest_block;
 use crate::connection::Connection;
 use crate::events::BroadcastEvents;
 
-const FIXED_SLEEP: u64 = 1;
+const FIXED_SLEEP: u64 = 60;
 
 pub fn launch_server(config: &Config, blockchain: &Arc<RwLock<Vec<Block>>>) {
     let mut runtime = tokio::runtime::Builder::new_multi_thread().enable_io().build().unwrap();
@@ -53,14 +53,14 @@ pub fn launch_server(config: &Config, blockchain: &Arc<RwLock<Vec<Block>>>) {
     });
 }
 
-fn run(blockchain: Arc<RwLock<Vec<Block>>>, tx: UnboundedSender<BroadcastEvents>, mut receiver: UnboundedReceiver<BroadcastEvents>) {
+fn run(mut blockchain: Arc<RwLock<Vec<Block>>>, tx: UnboundedSender<BroadcastEvents>, mut receiver: UnboundedReceiver<BroadcastEvents>) {
     loop {
         thread::sleep( time::Duration::from_secs(FIXED_SLEEP));
         println!("run {:?}", blockchain);
-        let _ = tx.send(BroadcastEvents::ResponseBlockchain(blockchain.read().unwrap().clone()));
+        let _ = tx.send(BroadcastEvents::ResponseBlockchain(blockchain.read().unwrap().to_vec()));
 
-        let read = &blockchain.read().unwrap().clone();
-        let latest = get_latest_block(read);
+        let read = blockchain.read().unwrap().clone();
+        let latest = get_latest_block(&read);
         let mut block = blockchain.write().unwrap();
         block.push(Block::generate("test".to_string(), latest));
     }

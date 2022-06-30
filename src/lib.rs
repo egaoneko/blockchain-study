@@ -36,5 +36,5 @@ pub fn run(config: Config) {
     println!("{:?}{:?}", blockchain, config);
 
     launch_http(&config, &blockchain);
-    // launch_server(&config, &blockchain);
+    launch_server(&config, &blockchain);
 }

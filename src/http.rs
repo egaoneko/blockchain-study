@@ -1,4 +1,5 @@
 use std::sync::{Arc, RwLock};
+use std::thread;
 use rocket_contrib::json::Json;
 use rocket_cors::{Cors, CorsOptions};
 
@@ -17,10 +18,14 @@ fn cors_fairing() -> Cors {
 }
 
 pub fn launch_http(config: &Config, blockchain: &Arc<RwLock<Vec<Block>>>) {
-    rocket::ignite()
-        .mount("/api", routes![
+    let b = Arc::clone(blockchain);
+    thread::spawn(move || {
+        rocket::ignite()
+            .mount("/api", routes![
             routes::ping
         ])
-        .attach(cors_fairing())
-        .launch();
+            .attach(cors_fairing())
+            .manage(b)
+            .launch();
+    });
 }
