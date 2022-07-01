@@ -3,7 +3,11 @@
 #[macro_use] extern crate rocket;
 extern crate rocket_cors;
 
+#[macro_use]
+extern crate validator_derive;
+
 use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc;
 
 pub mod block;
 pub mod errors;
@@ -16,7 +20,8 @@ mod routes;
 
 use crate::block::Block;
 use crate::config::Config;
-use crate::socket::launch_server;
+use crate::events::BroadcastEvents;
+use crate::socket::launch_socket;
 use crate::http::launch_http;
 
 /// # Rust Blockchain
@@ -32,9 +37,10 @@ pub fn run(config: Config) {
         "gene block".to_string(),
     );
     let blockchain: Arc<RwLock<Vec<Block>>> = Arc::new(RwLock::new(vec![genesis_block]));
+    let broadcast_channel = mpsc::unbounded_channel::<BroadcastEvents>();
 
     println!("{:?}{:?}", blockchain, config);
 
-    launch_http(&config, &blockchain);
-    launch_server(&config, &blockchain);
+    launch_http(&config, &blockchain, broadcast_channel.0.clone());
+    launch_socket(&config, &blockchain, broadcast_channel);
 }

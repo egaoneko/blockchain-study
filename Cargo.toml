@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 sha2 = "0.10"
 chrono = "0.4"
+validator = "0.15.0"
+validator_derive = "0.15.0"
 
 [dependencies.tokio]
 version = "1.19"

@@ -1,5 +1,7 @@
 use std::fmt;
+use rocket_contrib::json::Json;
 use serde::{Serialize};
+use validator::{Validate, ValidationError, ValidationErrors};
 
 /// Error for app
 #[derive(Debug)]
@@ -41,6 +43,9 @@ pub struct ApiError {
 
     /// message of error
     message: &'static str,
+
+    /// errors of validation
+    errors: Option<ValidationErrors>,
 }
 
 impl ApiError {
@@ -50,9 +55,51 @@ impl ApiError {
     ///
     /// ```
     /// use blockchain::errors::{ApiError};
-    /// let error = ApiError::new(404, "Not found");
+    /// use validator::{ValidationErrors};
+    /// let error = ApiError::new(404, "Not found", Some(ValidationErrors::new()));
     /// ```
-    pub fn new(code: usize, message: &'static str) -> Self {
-        Self { code, message }
+    pub fn new(code: usize, message: &'static str, errors: Option<ValidationErrors>) -> Self {
+        Self { code, message, errors }
+    }
+}
+
+pub struct FieldValidator {
+    errors: ValidationErrors,
+}
+
+
+impl Default for FieldValidator {
+    fn default() -> Self {
+        Self {
+            errors: ValidationErrors::new()
+        }
+    }
+}
+
+impl FieldValidator {
+    pub fn validate<T: Validate>(model: &T) -> Self {
+        Self {
+            errors: model.validate().err().unwrap_or_else(ValidationErrors::new),
+        }
+    }
+
+    /// Convenience method to trigger early returns with ? operator.
+    pub fn check(self) -> Result<(), Json<ApiError>> {
+        if self.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(Json(ApiError::new(500,"Invalid fields", Some(self.errors))))
+        }
+    }
+
+    pub fn extract<T>(&mut self, field_name: &'static str, field: Option<T>) -> T
+        where
+            T: Default,
+    {
+        field.unwrap_or_else(|| {
+            self.errors
+                .add(field_name, ValidationError::new("INVALID_FIELD"));
+            T::default()
+        })
     }
 }
