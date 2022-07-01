@@ -14,6 +14,12 @@ pub fn ping() -> &'static str {
     "ok"
 }
 
+#[get("/blocks")]
+pub fn blocks(blockchain: State<Arc<RwLock<Vec<Block>>>>) -> Json<Vec<Block>> {
+    Json(blockchain.read().unwrap().to_vec())
+}
+
+
 #[derive(Debug, Deserialize, Validate)]
 pub struct NewBlock {
     #[validate(length(min = 1))]

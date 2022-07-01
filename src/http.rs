@@ -24,6 +24,7 @@ pub fn launch_http(config: &Config, blockchain: &Arc<RwLock<Vec<Block>>>, broadc
         rocket::ignite()
             .mount("/api", routes![
             routes::ping,
+            routes::blocks,
             routes::mine_block
         ])
             .attach(cors_fairing())
