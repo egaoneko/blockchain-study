@@ -6,10 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+rustop = "1.1"
 sha2 = "0.10"
 chrono = "0.4"
 validator = "0.15.0"
 validator_derive = "0.15.0"
+rocket = "0.4"
+rocket_cors = "0.5"
+rocket_contrib = "0.4"
+url = "2.2"
 
 [dependencies.tokio]
 version = "1.19"
@@ -19,6 +24,7 @@ features = ["io-util", "macros", "time", "sync", "net", "rt-multi-thread"]
 [dependencies.tokio-tungstenite]
 version = "0.17"
 default-features = false
+features = ["connect"]
 
 [dependencies.futures-util]
 version = "0.3"
@@ -35,12 +41,3 @@ features = ["derive"]
 
 [dependencies.serde_json]
 version = "1.0"
-
-[dependencies.rocket]
-version = "0.4"
-
-[dependencies.rocket_cors]
-version = "0.5"
-
-[dependencies.rocket_contrib]
-version = "0.4"

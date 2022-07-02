@@ -20,6 +20,7 @@ mod routes;
 
 use crate::block::Block;
 use crate::config::Config;
+use crate::connection::Connection;
 use crate::events::BroadcastEvents;
 use crate::socket::launch_socket;
 use crate::http::launch_http;

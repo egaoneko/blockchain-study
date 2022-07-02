@@ -131,11 +131,13 @@ dependencies = [
  "rocket",
  "rocket_contrib",
  "rocket_cors",
+ "rustop",
  "serde",
  "serde_json",
  "sha2 0.10.2",
  "tokio",
  "tokio-tungstenite",
+ "url 2.2.2",
  "uuid",
  "validator",
  "validator_derive",
@@ -1032,6 +1034,12 @@ dependencies = [
  "time",
  "unicode-xid",
 ]
+
+[[package]]
+name = "rustop"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cac77bea4e5c89acb455a2fe072bc19334cb130691af6e1bed4625d3f5396e89"
 
 [[package]]
 name = "ryu"

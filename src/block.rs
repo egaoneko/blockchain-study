@@ -126,8 +126,8 @@ impl PartialEq for Block {
 }
 
 impl Clone for Block {
-    fn clone(&self) -> Block {
-        Block {
+    fn clone(&self) -> Self {
+        Self {
             index: self.index,
             hash: self.hash.clone(),
             previous_hash: self.previous_hash.clone(),
