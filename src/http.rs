@@ -8,6 +8,7 @@ use crate::{Block, BroadcastEvents, Config, routes};
 use crate::errors::ApiError;
 
 #[catch(404)]
+#[allow(dead_code)]
 fn not_found() -> Json<ApiError> {
     Json(ApiError::new(404, "Resource was not found.", None))
 }

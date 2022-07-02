@@ -6,5 +6,5 @@ pub enum BroadcastEvents {
     Join(Connection),
     Quit(String),
     Peer(String),
-    Blockchain(Vec<Block>),
+    Blockchain(Vec<Block>, Option<String>),
 }

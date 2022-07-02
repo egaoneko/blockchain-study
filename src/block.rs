@@ -66,7 +66,7 @@ impl Block {
     pub fn generate(data: String, previous: &Block) -> Block {
         let index = previous.index + 1;
         let timestamp = Utc::now().timestamp();
-        let hash = calculate_hash(index, &previous.hash, timestamp, &data);
+        let hash = calculate_hash(index, previous.hash.as_str(), timestamp, data.as_str());
         Block::new(
             index,
             hash,
@@ -92,7 +92,7 @@ impl Block {
     /// assert_eq!(block.get_calculated_hash(), block.hash);
     /// ```
     pub fn get_calculated_hash(&self) -> String {
-        calculate_hash(self.index, &self.previous_hash, self.timestamp, &self.data)
+        calculate_hash(self.index, self.previous_hash.as_str(), self.timestamp, self.data.as_str())
     }
 
     /// Return structure is valid
@@ -163,7 +163,7 @@ fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
     true
 }
 
-fn get_is_valid_chain(genesis_block: &Block, blockchain: &[Block]) -> bool {
+fn get_is_valid_chain(genesis_block: &Block, blockchain: &Vec<Block>) -> bool {
     if genesis_block != blockchain.get(0).unwrap() {
         false
     } else if blockchain.len() == 1 {
@@ -179,7 +179,7 @@ fn get_is_valid_chain(genesis_block: &Block, blockchain: &[Block]) -> bool {
 ///
 /// ```
 /// use blockchain::block::{Block, get_latest_block};
-/// let blockchain = [Block::new(
+/// let blockchain = vec![Block::new(
 ///     0,
 ///     "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
 ///     "".to_string(),
@@ -188,7 +188,7 @@ fn get_is_valid_chain(genesis_block: &Block, blockchain: &[Block]) -> bool {
 /// )];
 /// assert_eq!(get_latest_block(&blockchain) as *const Block, blockchain.last().unwrap() as *const Block);
 /// ```
-pub fn get_latest_block(blockchain: &[Block]) -> &Block {
+pub fn get_latest_block(blockchain: &Vec<Block>) -> &Block {
     blockchain.last().unwrap()
 }
 
@@ -198,7 +198,7 @@ pub fn get_latest_block(blockchain: &[Block]) -> &Block {
 ///
 /// ```
 /// use blockchain::block::{Block, get_latest_block, add_block};
-/// let blockchain = [Block::new(
+/// let blockchain = vec![Block::new(
 ///     0,
 ///     "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
 ///     "".to_string(),
@@ -213,12 +213,37 @@ pub fn get_latest_block(blockchain: &[Block]) -> &Block {
 /// # Errors
 ///
 /// If it is not valid compared to the previous block, it returns error 1000.
-pub fn add_block(blockchain: &[Block], new_block: &Block) -> Result<(), AppError> {
+pub fn add_block(blockchain: &Vec<Block>, new_block: &Block) -> Result<(), AppError> {
     if !get_is_valid_new_block(new_block, get_latest_block(blockchain)) {
         Err(AppError::new(1000))
     } else {
         Ok(())
     }
+}
+
+/// Get flag to replace blockchain.
+///
+/// # Examples
+///
+/// ```
+/// use blockchain::block::{Block, get_latest_block, get_is_replace_chain};
+/// let blockchain = vec![Block::new(
+///     0,
+///     "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+///     "".to_string(),
+///     1465154705,
+///     "genesis block".to_string(),
+/// )];
+/// let previous = get_latest_block(&blockchain);
+/// let next = Block::generate("next block".to_string(), previous);
+/// let mut new_blockchain = blockchain.clone();
+/// new_blockchain.push(next);
+///
+/// assert!(get_is_replace_chain(&blockchain, &new_blockchain));
+/// assert!(!get_is_replace_chain(&blockchain, &blockchain));
+/// ```
+pub fn get_is_replace_chain(blockchain: &Vec<Block>, new_blockchain: &Vec<Block>) -> bool {
+    get_is_valid_chain(&blockchain[0], &new_blockchain) && blockchain.len() < new_blockchain.len()
 }
 
 #[cfg(test)]
@@ -251,7 +276,7 @@ mod test {
         let timestamp = Utc::now().timestamp();
         assert_eq!(next.index, 1);
         assert_eq!(next.timestamp, timestamp);
-        assert_eq!(next.hash, calculate_hash(1, &previous.hash, timestamp, &data));
+        assert_eq!(next.hash, calculate_hash(1, previous.hash.as_str(), timestamp, &data));
         assert_eq!(next.data, data);
     }
 
@@ -426,7 +451,7 @@ mod test {
             1465154705,
             "genesis block".to_string(),
         );
-        let blockchain = [genesis_block.clone()];
+        let blockchain = vec![genesis_block.clone()];
         assert!(get_is_valid_chain(&genesis_block, &blockchain));
 
         let genesis_block = Block::new(
@@ -437,7 +462,7 @@ mod test {
             "genesis block".to_string(),
         );
         let next_block = Block::generate("next block".to_string(), &genesis_block);
-        let blockchain = [
+        let blockchain = vec![
             genesis_block.clone(),
             next_block.clone()
         ];
@@ -450,7 +475,7 @@ mod test {
             1465154705,
             "other genesis block".to_string(),
         );
-        let blockchain = [genesis_block.clone()];
+        let blockchain = vec![genesis_block.clone()];
         assert!(!get_is_valid_chain(&other_genesis_block, &blockchain));
 
         let genesis_block = Block::new(
@@ -462,7 +487,7 @@ mod test {
         );
         let mut  next_block = Block::generate("next block".to_string(), &genesis_block);
         next_block.index = 2;
-        let blockchain = [
+        let blockchain = vec![
             genesis_block.clone(),
             next_block.clone()
         ];
@@ -471,7 +496,7 @@ mod test {
 
     #[test]
     fn test_get_last_block() {
-        let blockchain = [Block::new(
+        let blockchain = vec![Block::new(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
             "".to_string(),
@@ -483,7 +508,7 @@ mod test {
 
     #[test]
     fn test_add_block() {
-        let blockchain = [Block::new(
+        let blockchain = vec![Block::new(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
             "".to_string(),
@@ -497,5 +522,23 @@ mod test {
         let mut next = Block::generate("next block".to_string(), previous);
         next.data = "invalid".to_string();
         assert!(add_block(&blockchain, &next).is_err());
+    }
+
+    #[test]
+    fn test_get_is_replace_chain() {
+        let blockchain = vec![Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "genesis block".to_string(),
+        )];
+        let previous = get_latest_block(&blockchain);
+        let next = Block::generate("next block".to_string(), previous);
+        let mut new_blockchain = blockchain.clone();
+        new_blockchain.push(next);
+
+        assert!(get_is_replace_chain(&blockchain, &new_blockchain));
+        assert!(!get_is_replace_chain(&blockchain, &blockchain));
     }
 }

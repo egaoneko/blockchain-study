@@ -32,11 +32,11 @@ pub fn post_blocks(new_block: Json<NewBlock>, blockchain: State<Arc<RwLock<Vec<B
     let data = extractor.extract("data", new_block.data);
     extractor.check()?;
 
-    let read = blockchain.read().unwrap().clone();
-    let latest = get_latest_block(&read);
-    let mut block = blockchain.write().unwrap();
-    block.push(Block::generate(data.to_string(), latest));
-    let _ = broadcast_sender.send(BroadcastEvents::Blockchain(block.to_vec()));
+    let guard = blockchain.read().unwrap().clone();
+    let latest = get_latest_block(&guard);
+    let mut guard = blockchain.write().unwrap();
+    guard.push(Block::generate(data.to_string(), latest));
+    let _ = broadcast_sender.send(BroadcastEvents::Blockchain(guard.to_vec(), None));
     Ok("ok")
 }
 

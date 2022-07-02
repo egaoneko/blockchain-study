@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::{thread, time};
-use tokio_tungstenite::tungstenite::Message;
+use std::mem;
 use tokio_tungstenite::{accept_async, connect_async, MaybeTlsStream, WebSocketStream};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::{SinkExt, StreamExt};
+use tokio_tungstenite::tungstenite::Message;
 use url::Url;
 
 use crate::{Block, Config};
-use crate::block::get_latest_block;
+use crate::block::{get_is_replace_chain};
 use crate::connection::Connection;
 use crate::events::BroadcastEvents;
+use crate::payload::{Payload, PayloadType};
 
 const FIXED_SLEEP: u64 = 60;
 
@@ -21,7 +22,7 @@ pub fn launch_socket(
     blockchain: &Arc<RwLock<Vec<Block>>>,
     broadcast_channel: (UnboundedSender<BroadcastEvents>, UnboundedReceiver<BroadcastEvents>),
 ) {
-    let mut runtime = tokio::runtime::Builder::new_multi_thread().enable_io().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_io().build().unwrap();
 
     runtime.block_on(async {
         let addr = format!("127.0.0.1:{}", config.socket_port);
@@ -31,7 +32,10 @@ pub fn launch_socket(
 
         let (broadcast_sender, broadcast_receiver) = broadcast_channel;
 
-        tokio::spawn(broadcast(broadcast_sender.clone(), broadcast_receiver));
+        tokio::spawn({
+            let b = Arc::clone(blockchain);
+            broadcast(b, broadcast_sender.clone(), broadcast_receiver)
+        });
         tokio::spawn({
             let b = Arc::clone(blockchain);
             run(b, broadcast_sender.clone())
@@ -47,7 +51,8 @@ pub fn launch_socket(
                 Err(e) => println!("Websocket connection error : {:?}", e),
                 Ok(ws_stream) => {
                     println!("New Connection : {:?}", peer);
-                    tokio::spawn(listen(broadcast_sender.clone(), ws_stream, peer.to_string()));
+                    let b = Arc::clone(blockchain);
+                    tokio::spawn(listen(b, broadcast_sender.clone(), ws_stream, peer.to_string()));
                 }
             }
         }
@@ -58,16 +63,10 @@ async fn run(blockchain: Arc<RwLock<Vec<Block>>>, tx: UnboundedSender<BroadcastE
     loop {
         thread::sleep(time::Duration::from_secs(FIXED_SLEEP));
         println!("run {:?}", blockchain);
-        // let _ = tx.send(BroadcastEvents::ResponseBlockchain(blockchain.read().unwrap().to_vec()));
-        //
-        // let read = blockchain.read().unwrap().clone();
-        // let latest = get_latest_block(&read);
-        // let mut block = blockchain.write().unwrap();
-        // block.push(Block::generate("test".to_string(), latest));
     }
 }
 
-async fn broadcast(tx: UnboundedSender<BroadcastEvents>, mut rx: UnboundedReceiver<BroadcastEvents>) {
+async fn broadcast(blockchain: Arc<RwLock<Vec<Block>>>, tx: UnboundedSender<BroadcastEvents>, mut rx: UnboundedReceiver<BroadcastEvents>) {
     let mut connections: HashMap<String, Connection> = HashMap::new();
 
     while let Some(event) = rx.recv().await {
@@ -83,24 +82,30 @@ async fn broadcast(tx: UnboundedSender<BroadcastEvents>, mut rx: UnboundedReceiv
             BroadcastEvents::Peer(peer) => {
                 println!("Connection peer : {:?}", peer);
                 let (ws_stream, _) = connect_async(Url::parse(peer.as_str()).unwrap()).await.expect("Failed to connect");
-                tokio::spawn(connect(tx.clone(), ws_stream, peer));
+                let b = Arc::clone(&blockchain);
+                tokio::spawn(connect(b, tx.clone(), ws_stream, peer));
             }
-            BroadcastEvents::Blockchain(blockchain) => {
-                println!("ResponseBlockchain : {:?}, {:?}", blockchain, connections);
-                for (_, conn) in connections.iter_mut() {
+            BroadcastEvents::Blockchain(blockchain, except) => {
+                println!("NotifyBlockchain : {:?}, {:?}", blockchain, connections);
+                let p = except.unwrap_or_default();
+                for (peer, conn) in connections.iter_mut() {
+                    if peer.eq(&p) {
+                        continue;
+                    }
                     if let Some(listener) = conn.listener.as_mut() {
-                        listener.send(Message::Text(serde_json::to_string(&blockchain).unwrap())).await.expect("ResponseBlockchain: listener send panic");
+                        listener.send(Payload::serialize(PayloadType::Blockchain, &blockchain)).await.expect("ResponseBlockchain: listener send panic");
                     }
                     if let Some(connector) = conn.connector.as_mut() {
-                        connector.send(Message::Text(serde_json::to_string(&blockchain).unwrap())).await.expect("ResponseBlockchain: connector send panic");
+                        connector.send(Payload::serialize(PayloadType::Blockchain, &blockchain)).await.expect("ResponseBlockchain: connector send panic");
                     }
                 }
-            }
+            },
         }
     }
 }
 
 async fn listen(
+    blockchain: Arc<RwLock<Vec<Block>>>,
     tx: UnboundedSender<BroadcastEvents>,
     ws_stream: WebSocketStream<TcpStream>,
     peer: String,
@@ -114,7 +119,8 @@ async fn listen(
         if let Ok(msg) = msg {
             println!("Receive listen message : {:?}", msg);
             if msg.is_text() {
-                println!("Receive listen message : {:?}", serde_json::from_str::<Vec<Block>>(msg.into_text().unwrap().as_str()).unwrap())
+                let b = Arc::clone(&blockchain);
+                receive(b, &tx, peer.clone(), msg);
             } else if msg.is_close() {
                 break; // When we break, we disconnect.
             }
@@ -127,20 +133,22 @@ async fn listen(
 }
 
 async fn connect(
-    blockchain_sender: UnboundedSender<BroadcastEvents>,
+    blockchain: Arc<RwLock<Vec<Block>>>,
+    tx: UnboundedSender<BroadcastEvents>,
     ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
     peer: String,
 ) {
     let (sender, mut receiver) = ws_stream.split();
     let conn = Connection::new(peer.clone(), None, Some(sender));
-    let _ = blockchain_sender.send(BroadcastEvents::Join(conn));
+    let _ = tx.send(BroadcastEvents::Join(conn));
 
     while let Some(msg) = receiver.next().await {
         println!("Receive connect message");
         if let Ok(msg) = msg {
             println!("Receive connect message : {:?}", msg);
             if msg.is_text() {
-                println!("Receive connect message : {:?}", msg)
+                let b = Arc::clone(&blockchain);
+                receive(b, &tx, peer.clone(), msg);
             } else if msg.is_close() {
                 break; // When we break, we disconnect.
             }
@@ -149,5 +157,25 @@ async fn connect(
         }
     }
     // If we reach here, it means the client got disconnected.
-    blockchain_sender.send(BroadcastEvents::Quit(peer.clone())).unwrap();
+    tx.send(BroadcastEvents::Quit(peer.clone())).unwrap();
+}
+
+fn receive(
+    blockchain: Arc<RwLock<Vec<Block>>>,
+    tx: &UnboundedSender<BroadcastEvents>,
+    peer: String,
+    message: Message
+) {
+    let payload = Payload::deserialize(message);
+    match payload.r#type {
+        PayloadType::Blockchain => {
+            let guard = blockchain.read().unwrap().clone();
+            let new_blockchain = serde_json::from_str::<Vec<Block>>(payload.data.as_str()).unwrap();
+            if get_is_replace_chain(&guard, &new_blockchain) {
+                let mut guard = blockchain.write().unwrap();
+                let _ = mem::replace(&mut *guard, new_blockchain);
+                tx.send(BroadcastEvents::Blockchain(guard.to_vec(), Some(peer))).unwrap();
+            }
+        }
+    }
 }
