@@ -6,7 +6,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{Block, BroadcastEvents};
-use crate::block::get_latest_block;
+use crate::block::{add_block};
 use crate::errors::{ApiError, FieldValidator};
 
 #[get("/ping")]
@@ -32,10 +32,11 @@ pub fn post_blocks(new_block: Json<NewBlock>, blockchain: State<Arc<RwLock<Vec<B
     let data = extractor.extract("data", new_block.data);
     extractor.check()?;
 
-    let guard = blockchain.read().unwrap().clone();
-    let latest = get_latest_block(&guard);
     let mut guard = blockchain.write().unwrap();
-    guard.push(Block::generate(data.to_string(), latest));
+    if let Err(e) = add_block(&mut guard, data) {
+        return Err(Json(ApiError::new(500, format!("Add block fail: {}", e.code), None)))
+    }
+
     let _ = broadcast_sender.send(BroadcastEvents::Blockchain(guard.to_vec(), None));
     Ok("ok")
 }

@@ -7,7 +7,7 @@ use validator::{Validate, ValidationError, ValidationErrors};
 #[derive(Debug)]
 pub struct AppError {
     /// code of error
-    code: usize,
+    pub code: usize,
 }
 
 impl AppError {
@@ -42,7 +42,7 @@ pub struct ApiError {
     code: usize,
 
     /// message of error
-    message: &'static str,
+    message: String,
 
     /// errors of validation
     errors: Option<ValidationErrors>,
@@ -56,9 +56,9 @@ impl ApiError {
     /// ```
     /// use blockchain::errors::{ApiError};
     /// use validator::{ValidationErrors};
-    /// let error = ApiError::new(404, "Not found", Some(ValidationErrors::new()));
+    /// let error = ApiError::new(404, "Not found".to_string(), Some(ValidationErrors::new()));
     /// ```
-    pub fn new(code: usize, message: &'static str, errors: Option<ValidationErrors>) -> Self {
+    pub fn new(code: usize, message: String, errors: Option<ValidationErrors>) -> Self {
         Self { code, message, errors }
     }
 }
@@ -88,7 +88,7 @@ impl FieldValidator {
         if self.errors.is_empty() {
             Ok(())
         } else {
-            Err(Json(ApiError::new(500,"Invalid fields", Some(self.errors))))
+            Err(Json(ApiError::new(500,"Invalid fields".to_string(), Some(self.errors))))
         }
     }
 

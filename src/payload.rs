@@ -45,6 +45,8 @@ mod test {
             "".to_string(),
             1465154705,
             "block".to_string(),
+            0,
+            0,
         )];
         let message = Payload::serialize(PayloadType::Blockchain, &blockchain);
         assert!(message.is_text());
@@ -58,6 +60,8 @@ mod test {
             "".to_string(),
             1465154705,
             "block".to_string(),
+            0,
+            0,
         )];
         let message = Payload::serialize(PayloadType::Blockchain, &blockchain);
         assert_eq!(Payload::deserialize(message).data, serde_json::to_string(&blockchain).unwrap());

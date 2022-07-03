@@ -18,6 +18,7 @@ mod connection;
 mod http;
 mod routes;
 mod payload;
+mod utils;
 
 use crate::block::Block;
 use crate::config::Config;
@@ -36,6 +37,8 @@ pub fn run(config: Config) {
         "".to_string(),
         1465154705,
         "gene block".to_string(),
+        0,
+        0,
     );
     let blockchain: Arc<RwLock<Vec<Block>>> = Arc::new(RwLock::new(vec![genesis_block]));
     let broadcast_channel = mpsc::unbounded_channel::<BroadcastEvents>();
