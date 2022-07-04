@@ -1,5 +1,5 @@
 use sha2::{Sha256, Digest};
-use chrono::{Utc};
+use chrono::{Duration, Utc};
 use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
@@ -7,6 +7,7 @@ use crate::utils::get_is_hash_matches_difficulty;
 
 const BLOCK_GENERATION_INTERVAL: usize = 10;
 const DIFFICULTY_ADJUSTMENT_INTERVAL: usize = 10;
+const TIMESTAMP_INTERVAL: usize = 60;
 
 /// Block in blockchain has sequence, data, time, and so on.
 #[derive(Debug, Serialize, Deserialize)]
@@ -122,24 +123,38 @@ fn calculate_hash(index: usize, previous_hash: &str, timestamp: usize, data: &st
     format!("{:x}", hasher.finalize())
 }
 
-fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
-    if !new_block.get_is_valid_structure() {
+fn get_is_valid_timestamp(new_block: &Block, previous_block: &Block) -> bool {
+    previous_block.timestamp - TIMESTAMP_INTERVAL < new_block.timestamp
+        && new_block.timestamp - TIMESTAMP_INTERVAL < Utc::now().timestamp() as usize
+}
+
+fn get_is_valid_hash(block: &Block) -> bool {
+    println!("{} {} {}", block.get_calculated_hash(), block.hash, block.get_calculated_hash().eq(&block.hash));
+    if !block.get_calculated_hash().eq(&block.hash) {
         return false;
     }
 
-    if previous_block.index + 1 != new_block.index {
-        return false;
-    }
-
-    if previous_block.hash != new_block.previous_hash {
-        return false;
-    }
-
-    if new_block.get_calculated_hash() != new_block.hash {
+    if !get_is_hash_matches_difficulty(block.hash.as_str(), block.difficulty) {
         return false;
     }
 
     true
+}
+
+fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
+    return if !new_block.get_is_valid_structure() {
+        false
+    } else if previous_block.index + 1 != new_block.index {
+        false
+    } else if previous_block.hash != new_block.previous_hash {
+        false
+    } else if !get_is_valid_timestamp(new_block, previous_block) {
+        false
+    } else if !get_is_valid_hash(new_block) {
+        false
+    } else {
+        true
+    }
 }
 
 fn get_is_valid_chain(genesis_block: &Block, blockchain: &Vec<Block>) -> bool {
@@ -202,6 +217,7 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
 
 #[cfg(test)]
 mod test {
+    use chrono::Duration;
     use super::*;
 
     #[test]
@@ -398,7 +414,68 @@ mod test {
     }
 
     #[test]
-    fn test_new_block_validate() {
+    fn test_get_is_valid_timestamp() {
+        let previous = Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            Utc::now().timestamp() as usize,
+            "prev block".to_string(),
+            0,
+            0,
+        );
+        let next = Block::generate("next block".to_string(), &previous, 0);
+        assert!(get_is_valid_timestamp(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
+        assert!(!get_is_valid_timestamp(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        next.timestamp = Utc::now().timestamp() as usize - TIMESTAMP_INTERVAL - 1;
+        assert!(!get_is_valid_timestamp(&next, &previous));
+    }
+
+    #[test]
+    fn test_get_is_valid_hash() {
+        let block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        assert!(get_is_valid_hash(&block));
+
+        let mut block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        block.hash = "invalid".to_string();
+        assert!(!get_is_valid_hash(&block));
+
+        let mut block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        block.difficulty = 2;
+        assert!(!get_is_valid_hash(&block));
+    }
+
+    #[test]
+    fn test_get_is_valid_new_block() {
         let previous = Block::new(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
@@ -416,20 +493,24 @@ mod test {
         assert!(!get_is_valid_new_block(&next, &previous));
 
         let mut next = Block::generate("next block".to_string(), &previous, 0);
-        next.hash = "invalid".to_string();
-        assert!(!get_is_valid_new_block(&next, &previous));
-
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
         next.previous_hash = "invalid".to_string();
         assert!(!get_is_valid_new_block(&next, &previous));
 
         let mut next = Block::generate("next block".to_string(), &previous, 0);
         next.data = "invalid".to_string();
         assert!(!get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
+        assert!(!get_is_valid_new_block(&next, &previous));
+
+        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
+        assert!(!get_is_valid_new_block(&next, &previous));
     }
 
     #[test]
-    fn test_chain_validate() {
+    fn test_get_is_valid_chain() {
         let genesis_block = Block::new(
             0,
             "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
