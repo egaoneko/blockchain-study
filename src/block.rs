@@ -1,5 +1,5 @@
 use sha2::{Sha256, Digest};
-use chrono::{Duration, Utc};
+use chrono::{Utc};
 use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
@@ -129,7 +129,6 @@ fn get_is_valid_timestamp(new_block: &Block, previous_block: &Block) -> bool {
 }
 
 fn get_is_valid_hash(block: &Block) -> bool {
-    println!("{} {} {}", block.get_calculated_hash(), block.hash, block.get_calculated_hash().eq(&block.hash));
     if !block.get_calculated_hash().eq(&block.hash) {
         return false;
     }
@@ -154,7 +153,7 @@ fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
         false
     } else {
         true
-    }
+    };
 }
 
 fn get_is_valid_chain(genesis_block: &Block, blockchain: &Vec<Block>) -> bool {
@@ -165,6 +164,12 @@ fn get_is_valid_chain(genesis_block: &Block, blockchain: &Vec<Block>) -> bool {
     } else {
         blockchain.windows(2).all(|window| get_is_valid_new_block(&window[1], &window[0]))
     }
+}
+
+fn get_accumulated_difficulty(blockchain: &Vec<Block>) -> i32 {
+    blockchain.into_iter()
+        .map(|block: &Block| block.difficulty)
+        .fold(0, |total: i32, difficulty: usize| total + 2_i32.pow(difficulty as u32))
 }
 
 /// Get latest block from blockchain.
@@ -191,7 +196,7 @@ pub fn add_block(blockchain: &mut Vec<Block>, data: String) -> Result<(), AppErr
 
 /// Get flag to replace blockchain.
 pub fn get_is_replace_chain(blockchain: &Vec<Block>, new_blockchain: &Vec<Block>) -> bool {
-    get_is_valid_chain(&blockchain[0], new_blockchain) && blockchain.len() < new_blockchain.len()
+    get_is_valid_chain(&blockchain[0], new_blockchain) && get_accumulated_difficulty(blockchain) < get_accumulated_difficulty(new_blockchain)
 }
 
 /// Get difficulty from blockchain.
@@ -204,7 +209,6 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
     let prev_adjustment_block: &Block = blockchain.get(blockchain.len() - DIFFICULTY_ADJUSTMENT_INTERVAL).unwrap();
     let time_expected = BLOCK_GENERATION_INTERVAL * DIFFICULTY_ADJUSTMENT_INTERVAL;
     let time_taken = latest_block.timestamp - prev_adjustment_block.timestamp;
-    println!("{} : {} {} {}", prev_adjustment_block.index, time_expected, time_taken, time_taken < time_expected / 2);
 
     return if time_taken < time_expected / 2 {
         prev_adjustment_block.difficulty + 1
@@ -217,7 +221,6 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
 
 #[cfg(test)]
 mod test {
-    use chrono::Duration;
     use super::*;
 
     #[test]
@@ -570,6 +573,34 @@ mod test {
     }
 
     #[test]
+    fn test_get_accumulated_difficulty() {
+        let genesis_block = Block::new(
+            0,
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "".to_string(),
+            1465154705,
+            "genesis block".to_string(),
+            0,
+            0,
+        );
+        let mut blockchain = vec![genesis_block.clone()];
+        assert_eq!(get_accumulated_difficulty(&blockchain), 1);
+
+        let mut blockchain = vec![
+            genesis_block.clone(),
+            Block::generate("next block".to_string(), &genesis_block, 2),
+        ];
+        assert_eq!(get_accumulated_difficulty(&blockchain), 5);
+
+        let mut blockchain = vec![
+            genesis_block.clone(),
+            Block::generate("next block".to_string(), &genesis_block, 2),
+            Block::generate("next block".to_string(), &genesis_block, 2),
+        ];
+        assert_eq!(get_accumulated_difficulty(&blockchain), 9);
+    }
+
+    #[test]
     fn test_get_last_block() {
         let blockchain = vec![Block::new(
             0,
@@ -610,12 +641,26 @@ mod test {
             0,
         )];
         let previous = get_latest_block(&blockchain);
-        let next = Block::generate("next block".to_string(), previous, 0);
+
+        let mut new_blockchain = blockchain.clone();
+        new_blockchain.push(Block::generate("next block".to_string(), previous, 0));
+        assert!(get_is_replace_chain(&blockchain, &new_blockchain));
+
+        let mut next = Block::generate("next block".to_string(), previous, 0);
+        next.hash = "invalid".to_string();
         let mut new_blockchain = blockchain.clone();
         new_blockchain.push(next);
+        assert!(!get_is_replace_chain(&blockchain, &new_blockchain));
 
+        let mut new_blockchain = blockchain.clone();
+        new_blockchain.push(Block::generate("next block".to_string(), previous, 1));
         assert!(get_is_replace_chain(&blockchain, &new_blockchain));
-        assert!(!get_is_replace_chain(&blockchain, &blockchain));
+
+        let mut a_blockchain = blockchain.clone();
+        a_blockchain.push(Block::generate("next block".to_string(), previous, 1));
+        let mut b_blockchain = blockchain.clone();
+        b_blockchain.push(Block::generate("next block".to_string(), previous, 0));
+        assert!(!get_is_replace_chain(&a_blockchain, &b_blockchain));
     }
 
     #[test]
