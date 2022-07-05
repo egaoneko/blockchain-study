@@ -91,6 +91,19 @@ impl Block {
     pub fn get_is_valid_structure(&self) -> bool {
         !self.hash.is_empty() && !self.previous_hash.is_empty() && !self.data.is_empty()
     }
+
+    // Return hash is valid
+    pub fn get_is_valid_hash(&self) -> bool {
+        if !self.get_calculated_hash().eq(&self.hash) {
+            return false;
+        }
+
+        if !get_is_hash_matches_difficulty(self.hash.as_str(), self.difficulty) {
+            return false;
+        }
+
+        true
+    }
 }
 
 impl PartialEq for Block {
@@ -128,18 +141,6 @@ fn get_is_valid_timestamp(new_block: &Block, previous_block: &Block) -> bool {
         && new_block.timestamp - TIMESTAMP_INTERVAL < Utc::now().timestamp() as usize
 }
 
-fn get_is_valid_hash(block: &Block) -> bool {
-    if !block.get_calculated_hash().eq(&block.hash) {
-        return false;
-    }
-
-    if !get_is_hash_matches_difficulty(block.hash.as_str(), block.difficulty) {
-        return false;
-    }
-
-    true
-}
-
 fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
     return if !new_block.get_is_valid_structure() {
         false
@@ -149,7 +150,7 @@ fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
         false
     } else if !get_is_valid_timestamp(new_block, previous_block) {
         false
-    } else if !get_is_valid_hash(new_block) {
+    } else if !new_block.get_is_valid_hash() {
         false
     } else {
         true
@@ -272,7 +273,7 @@ mod test {
     }
 
     #[test]
-    fn test_block_validate() {
+    fn test_block_get_is_valid_structure() {
         let invalid = Block::new(
             0,
             "".to_string(),
@@ -316,6 +317,44 @@ mod test {
             0,
         );
         assert!(invalid.get_is_valid_structure());
+    }
+
+    #[test]
+    fn test_block_get_is_valid_hash() {
+        let block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        assert!(block.get_is_valid_hash());
+
+        let mut block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        block.hash = "invalid".to_string();
+        assert!(!block.get_is_valid_hash());
+
+        let mut block = Block::new(
+            0,
+            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
+            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            1465154705,
+            "get hash".to_string(),
+            0,
+            0,
+        );
+        block.difficulty = 2;
+        assert!(!block.get_is_valid_hash());
     }
 
     #[test]
@@ -437,44 +476,6 @@ mod test {
         let mut next = Block::generate("next block".to_string(), &previous, 0);
         next.timestamp = Utc::now().timestamp() as usize - TIMESTAMP_INTERVAL - 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
-    }
-
-    #[test]
-    fn test_get_is_valid_hash() {
-        let block = Block::new(
-            0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
-            1465154705,
-            "get hash".to_string(),
-            0,
-            0,
-        );
-        assert!(get_is_valid_hash(&block));
-
-        let mut block = Block::new(
-            0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
-            1465154705,
-            "get hash".to_string(),
-            0,
-            0,
-        );
-        block.hash = "invalid".to_string();
-        assert!(!get_is_valid_hash(&block));
-
-        let mut block = Block::new(
-            0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
-            1465154705,
-            "get hash".to_string(),
-            0,
-            0,
-        );
-        block.difficulty = 2;
-        assert!(!get_is_valid_hash(&block));
     }
 
     #[test]
