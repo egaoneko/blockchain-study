@@ -19,6 +19,7 @@ mod http;
 mod routes;
 mod payload;
 mod utils;
+mod transaction;
 
 use crate::block::Block;
 use crate::config::Config;
