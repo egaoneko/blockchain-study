@@ -5,6 +5,8 @@ use secp256k1::{Secp256k1, ecdsa, PublicKey, SecretKey};
 use crate::errors::AppError;
 use crate::secp256k1::{message_from_str};
 
+const COINBASE_AMOUNT: usize = 50;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UnspentTxOut {
     pub tx_out_id: String,
@@ -189,6 +191,40 @@ fn get_is_valid_transaction(transaction: &Transaction, unspent_tx_outs: &Vec<Uns
     true
 }
 
+fn get_is_valid_coinbase_tx(transaction: Option<&Transaction>, block_index: usize) -> bool {
+    if transaction.is_none() {
+        return false;
+    }
+
+    let transaction = transaction.unwrap();
+
+    if !transaction.get_transaction_id().eq(&transaction.id) {
+        return false;
+    }
+
+    if transaction.tx_ins.len() != 1 {
+        return false;
+    }
+
+    let tx_in = transaction.tx_ins.get(0).unwrap();
+
+    if tx_in.tx_out_index != block_index {
+        return false;
+    }
+
+    if transaction.tx_outs.len() != 1 {
+        return false;
+    }
+
+    let tx_out = transaction.tx_outs.get(0).unwrap();
+
+    if tx_out.amount != COINBASE_AMOUNT {
+        return false;
+    }
+
+    true
+}
+
 pub fn get_public_key(private_key: &str) -> String {
     let secp = Secp256k1::new();
     let secret_key = SecretKey::from_str(private_key).unwrap();
@@ -251,7 +287,7 @@ mod test {
         let tx_in = TxIn::new(
             "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
             0,
-            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
         );
         let tx_ins = vec![tx_in.clone()];
         let tx_outs = vec![
@@ -306,12 +342,13 @@ mod test {
 
     #[test]
     fn test_get_is_valid_transaction() {
-        let tx_in = TxIn::new(
-            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
-            0,
-            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
-        );
-        let tx_ins = vec![tx_in.clone()];
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            )
+        ];
         let tx_outs = vec![
             TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
         ];
@@ -326,24 +363,91 @@ mod test {
         let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
         assert!(get_is_valid_transaction(&transaction, &unspent_tx_outs));
 
-        let tx_in = TxIn::new(
-            "invalid".to_string(),
-            0,
-            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
-        );
+        let tx_ins = vec![
+            TxIn::new(
+                "invalid".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            )
+        ];
         let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
         assert!(!get_is_valid_transaction(&transaction, &unspent_tx_outs));
 
-        let tx_in = TxIn::new(
-            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
-            0,
-            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
-        );
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            )
+        ];
         let tx_outs = vec![
             TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 0)
         ];
         let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
         assert!(!get_is_valid_transaction(&transaction, &unspent_tx_outs));
+    }
+
+    #[test]
+    fn test_get_is_valid_coinbase_tx() {
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(get_is_valid_coinbase_tx(Some(&transaction), 0));
+
+        assert!(!get_is_valid_coinbase_tx(None, 0));
+
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            ),
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            )
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_coinbase_tx(None, 0));
+
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            ),
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_coinbase_tx(None, 1));
+
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            ),
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50),
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_coinbase_tx(None, 0));
+
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 0)
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_coinbase_tx(None, 0));
     }
 
     #[test]
