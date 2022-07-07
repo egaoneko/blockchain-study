@@ -1,6 +1,9 @@
+use std::str::FromStr;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
-use secp256k1::{Secp256k1, Message, ecdsa, PublicKey};
+use secp256k1::{Secp256k1, ecdsa, PublicKey, SecretKey};
+use crate::errors::AppError;
+use crate::secp256k1::{message_from_str};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UnspentTxOut {
@@ -91,9 +94,17 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn new(tx_ins: &Vec<TxIn>, tx_outs: &Vec<TxOut>) -> Transaction {
+    pub fn generate(tx_ins: &Vec<TxIn>, tx_outs: &Vec<TxOut>) -> Transaction {
         Transaction {
             id: get_transaction_id(tx_ins, tx_outs),
+            tx_ins: tx_ins.to_vec(),
+            tx_outs: tx_outs.to_vec(),
+        }
+    }
+
+    pub fn new(id: String, tx_ins: &Vec<TxIn>, tx_outs: &Vec<TxOut>) -> Transaction {
+        Transaction {
+            id,
             tx_ins: tx_ins.to_vec(),
             tx_outs: tx_outs.to_vec(),
         }
@@ -118,18 +129,92 @@ fn get_transaction_id(tx_ins: &Vec<TxIn>, tx_outs: &Vec<TxOut>) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn validate_tx_in(tx_in: &TxIn, transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
-    let referenced_utx_out =
-        unspent_tx_outs.into_iter().find(|utx_o| utx_o.tx_out_id.eq(&tx_in.tx_out_id));
-    return if let Some(referenced_utx_out) = referenced_utx_out {
+
+fn get_is_valid_tx_in(tx_in: &TxIn, transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
+    let u_tx_out =
+        unspent_tx_outs.into_iter().find(|u_tx_o| u_tx_o.tx_out_id.eq(&tx_in.tx_out_id));
+    return if let Some(referenced_utx_out) = u_tx_out {
         let secp = Secp256k1::verification_only();
-        let public_key = PublicKey::from_slice(referenced_utx_out.address.as_bytes()).unwrap();
-        let message = Message::from_slice(transaction.id.as_bytes()).unwrap();
-        let sig = ecdsa::Signature::from_compact(tx_in.signature.as_bytes()).unwrap();
+        let public_key = PublicKey::from_str(&referenced_utx_out.address).unwrap();
+        let message = message_from_str(&transaction.id).unwrap();
+        let sig = ecdsa::Signature::from_str(&tx_in.signature).unwrap();
         secp.verify_ecdsa(&message, &sig, &public_key).is_ok()
     } else {
         false
     };
+}
+
+fn find_unspent_tx_out<'a>(transaction_id: &'a str, index: usize, unspent_tx_outs: &'a Vec<UnspentTxOut>) -> Option<&'a UnspentTxOut> {
+    unspent_tx_outs.into_iter().find(|u_tx_o| u_tx_o.tx_out_id.eq(transaction_id) && u_tx_o.tx_out_index == index)
+}
+
+fn get_tx_in_amount(tx_in: &TxIn, unspent_tx_outs: &Vec<UnspentTxOut>) -> usize {
+    return if let Some(u_tx_o) = find_unspent_tx_out(tx_in.tx_out_id.as_str(), tx_in.tx_out_index, unspent_tx_outs) {
+        u_tx_o.amount
+    } else {
+        0
+    };
+}
+
+fn get_is_valid_transaction(transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
+    if !transaction.get_transaction_id().eq(&transaction.id) {
+        return false;
+    }
+
+    let ref_tx_ins = &transaction.tx_ins;
+
+    let has_invalid_tx_ins = ref_tx_ins
+        .into_iter()
+        .any(|tx_in| !get_is_valid_tx_in(&tx_in, transaction, unspent_tx_outs));
+
+    if has_invalid_tx_ins {
+        return false;
+    }
+
+    let total_tx_in_values = ref_tx_ins
+        .into_iter()
+        .map(|tx_in| get_tx_in_amount(&tx_in, unspent_tx_outs))
+        .fold(0, |sum, amount| sum + amount);
+
+    let ref_tx_outs = &transaction.tx_outs;
+    let total_tx_out_values = ref_tx_outs
+        .into_iter()
+        .map(|tx_out| tx_out.amount)
+        .fold(0, |sum, amount| sum + amount);
+
+    if total_tx_out_values != total_tx_in_values {
+        return false;
+    }
+
+    true
+}
+
+pub fn get_public_key(private_key: &str) -> String {
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_str(private_key).unwrap();
+    PublicKey::from_secret_key(&secp, &secret_key).to_string()
+}
+
+pub fn sign_tx_in(
+    transaction: &Transaction,
+    tx_in_index: usize,
+    private_key: &str,
+    unspent_tx_outs: &Vec<UnspentTxOut>,
+) -> Result<String, AppError> {
+    let tx_in = transaction.tx_ins.get(tx_in_index).unwrap();
+    let referenced_unspent_tx_out = find_unspent_tx_out(&tx_in.tx_out_id, tx_in.tx_out_index, &unspent_tx_outs);
+    if referenced_unspent_tx_out.is_none() {
+        return Err(AppError::new(2000));
+    }
+
+    if !get_public_key(private_key).eq(&referenced_unspent_tx_out.unwrap().address) {
+        return Err(AppError::new(2000));
+    }
+
+    let secp = Secp256k1::new();
+    let secret_key = SecretKey::from_str(private_key).unwrap();
+    let message = message_from_str(&transaction.id).unwrap();
+    Ok(secp.sign_ecdsa(&message, &secret_key).to_string())
 }
 
 #[cfg(test)]
@@ -142,10 +227,10 @@ mod test {
             TxIn::new("".to_string(), 1, "".to_string()),
         ];
         let tx_outs = vec![
-            TxOut::new("04cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b8a022c6fa9ca22c67213bdd372e074b97b31c064fc247944147e73a71dea0b17".to_string(), 50)
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
         ];
 
-        assert_eq!(get_transaction_id(&tx_ins, &tx_outs), "65c57232f637ce937ea04864f125a4647817d84daf098920644c697519a4c4d8");
+        assert_eq!(get_transaction_id(&tx_ins, &tx_outs), "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea");
     }
 
     #[test]
@@ -154,30 +239,136 @@ mod test {
             TxIn::new("".to_string(), 1, "".to_string()),
         ];
         let tx_outs = vec![
-            TxOut::new("04cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b8a022c6fa9ca22c67213bdd372e074b97b31c064fc247944147e73a71dea0b17".to_string(), 50)
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
         ];
-        let transaction = Transaction::new(&tx_ins, &tx_outs);
+        let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
 
         assert_eq!(transaction.id, get_transaction_id(&tx_ins, &tx_outs), );
     }
 
     #[test]
-    fn test_validate_tx_in() {
-        let tx_in = TxIn::new("".to_string(), 1, "".to_string());
+    fn test_get_is_valid_tx_in() {
+        let tx_in = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
+        );
         let tx_ins = vec![tx_in.clone()];
         let tx_outs = vec![
-            TxOut::new("04cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b8a022c6fa9ca22c67213bdd372e074b97b31c064fc247944147e73a71dea0b17".to_string(), 50)
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
         ];
         let unspent_tx_outs = vec![
             UnspentTxOut::new(
-                "65c57232f637ce937ea04864f125a4647817d84daf098920644c697519a4c4d8".to_string(),
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
                 0,
-                "04cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b8a022c6fa9ca22c67213bdd372e074b97b31c064fc247944147e73a71dea0b17".to_string(),
-                50
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
             )
         ];
-        let transaction = Transaction::new(&tx_ins, &tx_outs);
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
 
-        assert!(validate_tx_in(&tx_in, &transaction, &unspent_tx_outs));
+        assert!(get_is_valid_tx_in(&tx_in, &transaction, &unspent_tx_outs));
+    }
+
+    #[test]
+    fn test_find_unspent_tx_out() {
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        assert!(find_unspent_tx_out("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea", 0, &unspent_tx_outs).is_some());
+        assert!(find_unspent_tx_out("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea", 1, &unspent_tx_outs).is_none());
+    }
+
+    #[test]
+    fn test_get_tx_in_amount() {
+        let tx_in = TxIn::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), 0, "".to_string());
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        assert_eq!(get_tx_in_amount(&tx_in, &unspent_tx_outs), 50);
+
+        let tx_in = TxIn::new("".to_string(), 0, "".to_string());
+        assert_eq!(get_tx_in_amount(&tx_in, &unspent_tx_outs), 0);
+
+        let tx_in = TxIn::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), 1, "".to_string());
+        assert_eq!(get_tx_in_amount(&tx_in, &unspent_tx_outs), 0);
+    }
+
+    #[test]
+    fn test_get_is_valid_transaction() {
+        let tx_in = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
+        );
+        let tx_ins = vec![tx_in.clone()];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
+        assert!(get_is_valid_transaction(&transaction, &unspent_tx_outs));
+
+        let tx_in = TxIn::new(
+            "invalid".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
+        );
+        let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_transaction(&transaction, &unspent_tx_outs));
+
+        let tx_in = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string()
+        );
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 0)
+        ];
+        let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
+        assert!(!get_is_valid_transaction(&transaction, &unspent_tx_outs));
+    }
+
+    #[test]
+    fn test_get_public_key() {
+        assert_eq!(get_public_key("27f5005f5f58f8711e99577e8b87e28ab4c2151f9289ac1203ccecdb94602a5b"), "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b");
+    }
+
+    #[test]
+    fn test_sign_tx_in() {
+        let tx_ins = vec![TxIn::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), 0, "".to_string())];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transaction = Transaction::generate(&tx_ins, &tx_outs);
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        assert_eq!(
+            sign_tx_in(&transaction, 0, "27f5005f5f58f8711e99577e8b87e28ab4c2151f9289ac1203ccecdb94602a5b", &unspent_tx_outs).unwrap(),
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a"
+        );
     }
 }

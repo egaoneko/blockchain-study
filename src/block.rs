@@ -584,16 +584,16 @@ mod test {
             0,
             0,
         );
-        let mut blockchain = vec![genesis_block.clone()];
+        let blockchain = vec![genesis_block.clone()];
         assert_eq!(get_accumulated_difficulty(&blockchain), 1);
 
-        let mut blockchain = vec![
+        let blockchain = vec![
             genesis_block.clone(),
             Block::generate("next block".to_string(), &genesis_block, 2),
         ];
         assert_eq!(get_accumulated_difficulty(&blockchain), 5);
 
-        let mut blockchain = vec![
+        let blockchain = vec![
             genesis_block.clone(),
             Block::generate("next block".to_string(), &genesis_block, 2),
             Block::generate("next block".to_string(), &genesis_block, 2),

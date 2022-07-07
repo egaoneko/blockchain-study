@@ -27,7 +27,8 @@ impl AppError {
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let message = match self.code {
-            1000 => "Fail to add",
+            1000 => "Fail to add block",
+            2000 => "Fail to sign in",
             _ => "Unknown",
         };
 

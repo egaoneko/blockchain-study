@@ -20,6 +20,7 @@ mod routes;
 mod payload;
 mod utils;
 mod transaction;
+mod secp256k1;
 
 use crate::block::Block;
 use crate::config::Config;
