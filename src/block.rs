@@ -62,7 +62,7 @@ impl Block {
         let timestamp = Utc::now().timestamp() as usize;
         let mut nonce = 0;
 
-        return loop {
+        loop {
             let hash = calculate_hash(index, previous.hash.as_str(), timestamp, data.as_str(), difficulty, nonce);
 
             if !get_is_hash_matches_difficulty(hash.as_str(), difficulty) {
@@ -79,7 +79,7 @@ impl Block {
                 difficulty,
                 nonce,
             );
-        };
+        }
     }
 
     /// Recalculate and return hash

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
@@ -225,6 +226,44 @@ fn get_is_valid_coinbase_tx(transaction: Option<&Transaction>, block_index: usiz
     true
 }
 
+fn has_duplicates(tx_ins: &Vec<&TxIn>) -> bool {
+    tx_ins
+        .into_iter()
+        .fold(HashMap::new(), |mut acc, tx_in| {
+            let counter = acc.entry(format!("{}{}", tx_in.tx_out_id, tx_in.tx_out_index).to_string()).or_insert(0);
+            *counter += 1;
+            acc
+        }).values().any(|count| *count > 1)
+}
+
+fn get_is_valid_block_transactions(transactions: &Vec<Transaction>, unspent_tx_outs: &Vec<UnspentTxOut>, block_index: usize) -> bool {
+    let coinbase_tx = transactions.get(0);
+    if !get_is_valid_coinbase_tx(coinbase_tx, block_index) {
+        return false;
+    }
+
+    let tx_ins = transactions.into_iter()
+        .map(|tx| &tx.tx_ins)
+        .flatten()
+        .collect();
+
+    if has_duplicates(&tx_ins) {
+        return false;
+    }
+
+    transactions.into_iter()
+        .skip(1)
+        .map(|tx| get_is_valid_transaction(tx, unspent_tx_outs))
+        .all(|valid| valid)
+}
+
+pub fn get_coinbase_transaction(address: String, block_index: usize) -> Transaction {
+    return Transaction::generate(
+        &vec![TxIn::new("".to_string(), block_index, "".to_string())],
+        &vec![TxOut::new(address, COINBASE_AMOUNT)],
+    );
+}
+
 pub fn get_public_key(private_key: &str) -> String {
     let secp = Secp256k1::new();
     let secret_key = SecretKey::from_str(private_key).unwrap();
@@ -414,10 +453,10 @@ mod test {
                 "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
                 0,
                 "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
-            )
+            ),
         ];
         let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
-        assert!(!get_is_valid_coinbase_tx(None, 0));
+        assert!(!get_is_valid_coinbase_tx(Some(&transaction), 0));
 
         let tx_ins = vec![
             TxIn::new(
@@ -427,7 +466,7 @@ mod test {
             ),
         ];
         let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
-        assert!(!get_is_valid_coinbase_tx(None, 1));
+        assert!(!get_is_valid_coinbase_tx(Some(&transaction), 1));
 
         let tx_ins = vec![
             TxIn::new(
@@ -438,16 +477,104 @@ mod test {
         ];
         let tx_outs = vec![
             TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50),
-            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50),
         ];
         let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
-        assert!(!get_is_valid_coinbase_tx(None, 0));
+        assert!(!get_is_valid_coinbase_tx(Some(&transaction), 0));
 
         let tx_outs = vec![
             TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 0)
         ];
         let transaction = Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs);
-        assert!(!get_is_valid_coinbase_tx(None, 0));
+        assert!(!get_is_valid_coinbase_tx(Some(&transaction), 0));
+    }
+
+    #[test]
+    fn test_has_duplicates() {
+        let a = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+        );
+        let b = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+        );
+        let tx_ins = vec![
+            &a,
+            &b,
+        ];
+        assert!(has_duplicates(&tx_ins));
+
+        let a = TxIn::new(
+            "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+            0,
+            "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+        );
+        let tx_ins = vec![
+            &a,
+        ];
+        assert!(!has_duplicates(&tx_ins));
+    }
+
+    #[test]
+    fn test_get_is_valid_block_transactions() {
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                1,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
+        ];
+        let unspent_tx_outs = vec![];
+        assert!(get_is_valid_block_transactions(&transactions, &unspent_tx_outs, 1));
+
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                2,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(), &tx_ins, &tx_outs)
+        ];
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        assert!(get_is_valid_block_transactions(&transactions, &unspent_tx_outs, 2));
+    }
+
+    #[test]
+    fn test_get_coinbase_transaction() {
+        let block_index: usize = 1;
+        let address = "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b";
+        let transaction = get_coinbase_transaction(address.to_string(), block_index);
+        assert_eq!(transaction.id, get_transaction_id(&transaction.tx_ins, &transaction.tx_outs));
+
+        let tx_in = transaction.tx_ins.get(0).unwrap();
+        assert_eq!(tx_in.tx_out_id, "");
+        assert_eq!(tx_in.tx_out_index, block_index);
+        assert_eq!(tx_in.signature, "");
+
+        let tx_out = transaction.tx_outs.get(0).unwrap();
+        assert_eq!(tx_out.address, address);
+        assert_eq!(tx_out.amount, COINBASE_AMOUNT);
     }
 
     #[test]
