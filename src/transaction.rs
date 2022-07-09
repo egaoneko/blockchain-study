@@ -132,7 +132,6 @@ fn get_transaction_id(tx_ins: &Vec<TxIn>, tx_outs: &Vec<TxOut>) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-
 fn get_is_valid_tx_in(tx_in: &TxIn, transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
     let u_tx_out =
         unspent_tx_outs.into_iter().find(|u_tx_o| u_tx_o.tx_out_id.eq(&tx_in.tx_out_id));
@@ -255,6 +254,34 @@ fn get_is_valid_block_transactions(transactions: &Vec<Transaction>, unspent_tx_o
         .skip(1)
         .map(|tx| get_is_valid_transaction(tx, unspent_tx_outs))
         .all(|valid| valid)
+}
+
+fn update_unspent_tx_outs(new_transactions: &Vec<Transaction>, unspent_tx_outs: &Vec<UnspentTxOut>) -> Vec<UnspentTxOut> {
+    let new_unspent_tx_outs: Vec<UnspentTxOut> = new_transactions
+        .into_iter()
+        .map(|t| {
+            let ref_tx_outs = &t.tx_outs;
+            ref_tx_outs
+                .into_iter()
+                .enumerate()
+                .map(|(index, tx_out)| UnspentTxOut::new(t.id.clone(), index, tx_out.address.clone(), tx_out.amount))
+        })
+        .flatten()
+        .collect();
+
+    let consumed_tx_outs: Vec<UnspentTxOut> = new_transactions
+        .into_iter()
+        .map(|t| &t.tx_ins)
+        .flatten()
+        .map(|tx_in| UnspentTxOut::new(tx_in.tx_out_id.clone(), tx_in.tx_out_index, "".to_string(), 0))
+        .collect();
+
+    unspent_tx_outs
+        .into_iter()
+        .filter(|u_tx_o| find_unspent_tx_out(&u_tx_o.tx_out_id, u_tx_o.tx_out_index, &consumed_tx_outs).is_none())
+        .map(|u_tx_o| u_tx_o.clone())
+        .chain(new_unspent_tx_outs)
+        .collect()
 }
 
 pub fn get_coinbase_transaction(address: String, block_index: usize) -> Transaction {
@@ -558,6 +585,61 @@ mod test {
             )
         ];
         assert!(get_is_valid_block_transactions(&transactions, &unspent_tx_outs, 2));
+    }
+
+    #[test]
+    fn test_update_unspent_tx_outs() {
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                1,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
+        ];
+        let unspent_tx_outs = vec![];
+        let updated_unspent_tx_outs = update_unspent_tx_outs(&transactions, &unspent_tx_outs);
+        let expect = updated_unspent_tx_outs.get(0).unwrap();
+        assert_eq!(expect.tx_out_id, "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea");
+        assert_eq!(expect.tx_out_index, 0);
+        assert_eq!(expect.address, "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b");
+        assert_eq!(expect.amount, 50);
+
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                2,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(), &tx_ins, &tx_outs)
+        ];
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )
+        ];
+        let updated_unspent_tx_outs = update_unspent_tx_outs(&transactions, &unspent_tx_outs);
+        let expect = updated_unspent_tx_outs.get(0).unwrap();
+
+        let expect = updated_unspent_tx_outs.get(1).unwrap();
+        println!("{:?}", updated_unspent_tx_outs);
+        assert_eq!(expect.tx_out_id, "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e");
+        assert_eq!(expect.tx_out_index, 0);
+        assert_eq!(expect.address, "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b");
+        assert_eq!(expect.amount, 50);
     }
 
     #[test]
