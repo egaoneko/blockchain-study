@@ -1,8 +1,11 @@
+use std::mem;
 use sha2::{Sha256, Digest};
 use chrono::{Utc};
 use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
+use crate::transaction::{process_transactions, Transaction};
+use crate::UnspentTxOut;
 use crate::utils::get_is_hash_matches_difficulty;
 
 const BLOCK_GENERATION_INTERVAL: usize = 10;
@@ -25,7 +28,7 @@ pub struct Block {
     pub timestamp: usize,
 
     /// Data in block
-    pub data: String,
+    pub data: Vec<Transaction>,
 
     /// Difficulty to generate block
     pub difficulty: usize,
@@ -41,7 +44,7 @@ impl Block {
         hash: String,
         previous_hash: String,
         timestamp: usize,
-        data: String,
+        data: Vec<Transaction>,
         difficulty: usize,
         nonce: usize,
     ) -> Block {
@@ -57,13 +60,13 @@ impl Block {
     }
 
     /// Generate a block with data and previous block
-    pub fn generate(data: String, previous: &Block, difficulty: usize) -> Block {
+    pub fn generate(data: &Vec<Transaction>, previous: &Block, difficulty: usize) -> Block {
         let index = previous.index + 1;
         let timestamp = Utc::now().timestamp() as usize;
         let mut nonce = 0;
 
         loop {
-            let hash = calculate_hash(index, previous.hash.as_str(), timestamp, data.as_str(), difficulty, nonce);
+            let hash = calculate_hash(index, previous.hash.as_str(), timestamp, data, difficulty, nonce);
 
             if !get_is_hash_matches_difficulty(hash.as_str(), difficulty) {
                 nonce += 1;
@@ -75,7 +78,7 @@ impl Block {
                 hash,
                 previous.hash.to_string(),
                 timestamp,
-                data.to_string(),
+                data.to_vec(),
                 difficulty,
                 nonce,
             );
@@ -84,12 +87,12 @@ impl Block {
 
     /// Recalculate and return hash
     pub fn get_calculated_hash(&self) -> String {
-        calculate_hash(self.index, self.previous_hash.as_str(), self.timestamp, self.data.as_str(), self.difficulty, self.nonce)
+        calculate_hash(self.index, self.previous_hash.as_str(), self.timestamp, &self.data, self.difficulty, self.nonce)
     }
 
     /// Return structure is valid
     pub fn get_is_valid_structure(&self) -> bool {
-        !self.hash.is_empty() && !self.previous_hash.is_empty() && !self.data.is_empty()
+        !self.hash.is_empty() && !self.previous_hash.is_empty()
     }
 
     // Return hash is valid
@@ -130,9 +133,9 @@ impl Clone for Block {
     }
 }
 
-fn calculate_hash(index: usize, previous_hash: &str, timestamp: usize, data: &str, difficulty: usize, nonce: usize) -> String {
+fn calculate_hash(index: usize, previous_hash: &str, timestamp: usize, data: &Vec<Transaction>, difficulty: usize, nonce: usize) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(format!("{}{}{}{}{}{}", index, previous_hash, timestamp, data, difficulty, nonce).as_bytes());
+    hasher.update(format!("{}{}{}{}{}{}", index, previous_hash, timestamp, serde_json::to_string(&data).unwrap(), difficulty, nonce).as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
@@ -182,7 +185,7 @@ pub fn get_latest_block(blockchain: &Vec<Block>) -> &Block {
 ///
 /// # Errors
 /// If it is not valid compared to the previous block, it returns error 1000.
-pub fn add_block(blockchain: &mut Vec<Block>, data: String) -> Result<(), AppError> {
+pub fn add_block(blockchain: &mut Vec<Block>, unspent_tx_outs: &mut Vec<UnspentTxOut>, data: &Vec<Transaction>) -> Result<(), AppError> {
     let latest = get_latest_block(blockchain);
     let difficulty = get_difficulty(blockchain);
     let new_block = Block::generate(data, latest, difficulty);
@@ -190,8 +193,13 @@ pub fn add_block(blockchain: &mut Vec<Block>, data: String) -> Result<(), AppErr
     if !get_is_valid_new_block(&new_block, get_latest_block(blockchain)) {
         Err(AppError::new(1000))
     } else {
-        blockchain.push(new_block);
-        Ok(())
+        if let Ok(processed_unspent_tx_outs) = process_transactions(&new_block.data, unspent_tx_outs, new_block.index) {
+            blockchain.push(new_block);
+            let _ = mem::replace(&mut *unspent_tx_outs, processed_unspent_tx_outs);
+            Ok(())
+        } else {
+            Err(AppError::new(1000))
+        }
     }
 }
 
@@ -222,35 +230,46 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
 
 #[cfg(test)]
 mod test {
+    use crate::transaction::{TxIn, TxOut};
     use super::*;
 
     #[test]
     fn test_calculate_hash() {
         let hash = calculate_hash(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D",
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d",
             1465154705,
-            "get hash",
+            &vec![],
             0,
             0,
         );
 
-        assert_eq!(hash, "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444");
+        assert_eq!(hash, "12c7538225556354e750653f746fea1414b43fb09062f279162725d7748df7c9");
+
+        let hash = calculate_hash(
+            0,
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d",
+            1465154705,
+            &vec![Transaction::generate(&vec![], &vec![])],
+            0,
+            0,
+        );
+        assert_eq!(hash, "e57a5313832eb6755a61a9ea87308ebfe04cb5aea378b3a0c0e2fba1051ceb1e");
     }
 
     #[test]
     fn test_block_generate() {
         let previous = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "prev block".to_string(),
+            vec![],
             0,
             0,
         );
-        let data = "next block";
-        let next = Block::generate(data.to_string(), &previous, 0);
+        let data = vec![];
+        let next = Block::generate(&data, &previous, 0);
         let timestamp = Utc::now().timestamp() as usize;
         assert_eq!(next.index, 1);
         assert_eq!(next.timestamp, timestamp);
@@ -262,14 +281,14 @@ mod test {
     fn test_block_calculated_hash() {
         let block = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
-        assert_eq!(block.get_calculated_hash(), calculate_hash(0, "", 1465154705, "block", 0, 0));
+        assert_eq!(block.get_calculated_hash(), calculate_hash(0, "", 1465154705, &vec![], 0, 0));
     }
 
     #[test]
@@ -279,7 +298,7 @@ mod test {
             "".to_string(),
             "valid".to_string(),
             1465154705,
-            "valid".to_string(),
+            vec![],
             0,
             0,
         );
@@ -290,7 +309,7 @@ mod test {
             "valid".to_string(),
             "".to_string(),
             1465154705,
-            "valid".to_string(),
+            vec![],
             0,
             0,
         );
@@ -301,18 +320,7 @@ mod test {
             "valid".to_string(),
             "valid".to_string(),
             1465154705,
-            "".to_string(),
-            0,
-            0,
-        );
-        assert!(!invalid.get_is_valid_structure());
-
-        let invalid = Block::new(
-            0,
-            "valid".to_string(),
-            "valid".to_string(),
-            1465154705,
-            "valid".to_string(),
+            vec![],
             0,
             0,
         );
@@ -323,10 +331,10 @@ mod test {
     fn test_block_get_is_valid_hash() {
         let block = Block::new(
             0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "12c7538225556354e750653f746fea1414b43fb09062f279162725d7748df7c9".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             1465154705,
-            "get hash".to_string(),
+            vec![],
             0,
             0,
         );
@@ -334,10 +342,10 @@ mod test {
 
         let mut block = Block::new(
             0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "12c7538225556354e750653f746fea1414b43fb09062f279162725d7748df7c9".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             1465154705,
-            "get hash".to_string(),
+            vec![],
             0,
             0,
         );
@@ -346,10 +354,10 @@ mod test {
 
         let mut block = Block::new(
             0,
-            "278d7ac5b56a22896069f3064ab82ca610068c5c6494a2fa1658f02741349444".to_string(),
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "12c7538225556354e750653f746fea1414b43fb09062f279162725d7748df7c9".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             1465154705,
-            "get hash".to_string(),
+            vec![],
             0,
             0,
         );
@@ -361,19 +369,19 @@ mod test {
     fn test_block_equal() {
         let a = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
         let b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -381,10 +389,10 @@ mod test {
 
         let mut b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -393,10 +401,10 @@ mod test {
 
         let mut b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -405,10 +413,10 @@ mod test {
 
         let mut b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -417,10 +425,10 @@ mod test {
 
         let mut b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -429,14 +437,13 @@ mod test {
 
         let mut b = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "e57a5313832eb6755a61a9ea87308ebfe04cb5aea378b3a0c0e2fba1051ceb1e".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![Transaction::generate(&vec![], &vec![])],
             0,
             0,
         );
-        b.data = "invalid".to_string();
         assert_ne!(a, b);
     }
 
@@ -444,10 +451,10 @@ mod test {
     fn test_block_clone() {
         let a = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -459,21 +466,21 @@ mod test {
     fn test_get_is_valid_timestamp() {
         let previous = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             Utc::now().timestamp() as usize,
-            "prev block".to_string(),
+            vec![],
             0,
             0,
         );
-        let next = Block::generate("next block".to_string(), &previous, 0);
+        let next = Block::generate(&vec![], &previous, 0);
         assert!(get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = Utc::now().timestamp() as usize - TIMESTAMP_INTERVAL - 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
     }
@@ -482,33 +489,33 @@ mod test {
     fn test_get_is_valid_new_block() {
         let previous = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "prev block".to_string(),
+            vec![],
             0,
             0,
         );
-        let next = Block::generate("next block".to_string(), &previous, 0);
+        let next = Block::generate(&vec![], &previous, 0);
         assert!(get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.index = 2;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.previous_hash = "invalid".to_string();
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
-        next.data = "invalid".to_string();
+        let mut next = Block::generate(&vec![], &previous, 0);
+        next.data = vec![Transaction::generate(&vec![], &vec![])];
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate("next block".to_string(), &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
     }
@@ -517,10 +524,10 @@ mod test {
     fn test_get_is_valid_chain() {
         let genesis_block = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -529,14 +536,14 @@ mod test {
 
         let genesis_block = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         );
-        let next_block = Block::generate("next block".to_string(), &genesis_block, 0);
+        let next_block = Block::generate(&vec![], &genesis_block, 0);
         let blockchain = vec![
             genesis_block.clone(),
             next_block.clone(),
@@ -545,10 +552,10 @@ mod test {
 
         let other_genesis_block = Block::new(
             1,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "other genesis block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -557,14 +564,14 @@ mod test {
 
         let genesis_block = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         );
-        let mut next_block = Block::generate("next block".to_string(), &genesis_block, 0);
+        let mut next_block = Block::generate(&vec![], &genesis_block, 0);
         next_block.index = 2;
         let blockchain = vec![
             genesis_block.clone(),
@@ -577,10 +584,10 @@ mod test {
     fn test_get_accumulated_difficulty() {
         let genesis_block = Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         );
@@ -589,14 +596,14 @@ mod test {
 
         let blockchain = vec![
             genesis_block.clone(),
-            Block::generate("next block".to_string(), &genesis_block, 2),
+            Block::generate(&vec![], &genesis_block, 2),
         ];
         assert_eq!(get_accumulated_difficulty(&blockchain), 5);
 
         let blockchain = vec![
             genesis_block.clone(),
-            Block::generate("next block".to_string(), &genesis_block, 2),
-            Block::generate("next block".to_string(), &genesis_block, 2),
+            Block::generate(&vec![], &genesis_block, 2),
+            Block::generate(&vec![], &genesis_block, 2),
         ];
         assert_eq!(get_accumulated_difficulty(&blockchain), 9);
     }
@@ -605,10 +612,10 @@ mod test {
     fn test_get_last_block() {
         let blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         )];
@@ -619,48 +626,63 @@ mod test {
     fn test_add_block() {
         let mut blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         )];
-        assert!(add_block(&mut blockchain, "next block".to_string()).is_ok());
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                1,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
+        ];
+        let mut unspent_tx_outs = vec![];
+        assert!(add_block(&mut blockchain, &mut unspent_tx_outs, &transactions).is_ok());
         assert_eq!(blockchain.len(), 2);
+        assert_eq!(unspent_tx_outs.len(), 1);
     }
 
     #[test]
     fn test_get_is_replace_chain() {
         let blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         )];
         let previous = get_latest_block(&blockchain);
 
         let mut new_blockchain = blockchain.clone();
-        new_blockchain.push(Block::generate("next block".to_string(), previous, 0));
+        new_blockchain.push(Block::generate(&vec![], previous, 0));
         assert!(get_is_replace_chain(&blockchain, &new_blockchain));
 
-        let mut next = Block::generate("next block".to_string(), previous, 0);
+        let mut next = Block::generate(&vec![], previous, 0);
         next.hash = "invalid".to_string();
         let mut new_blockchain = blockchain.clone();
         new_blockchain.push(next);
         assert!(!get_is_replace_chain(&blockchain, &new_blockchain));
 
         let mut new_blockchain = blockchain.clone();
-        new_blockchain.push(Block::generate("next block".to_string(), previous, 1));
+        new_blockchain.push(Block::generate(&vec![], previous, 1));
         assert!(get_is_replace_chain(&blockchain, &new_blockchain));
 
         let mut a_blockchain = blockchain.clone();
-        a_blockchain.push(Block::generate("next block".to_string(), previous, 1));
+        a_blockchain.push(Block::generate(&vec![], previous, 1));
         let mut b_blockchain = blockchain.clone();
-        b_blockchain.push(Block::generate("next block".to_string(), previous, 0));
+        b_blockchain.push(Block::generate(&vec![], previous, 0));
         assert!(!get_is_replace_chain(&a_blockchain, &b_blockchain));
     }
 
@@ -668,18 +690,30 @@ mod test {
     fn test_get_difficulty() {
         let mut blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "genesis block".to_string(),
+            vec![],
             0,
             0,
         )];
+        let mut unspent_tx_outs = vec![];
         let difficulty = get_difficulty(&blockchain);
         assert_eq!(difficulty, 0);
 
         for i in 1..11 {
-            add_block(&mut blockchain, format!("next block {i}")).expect("error");
+            let tx_ins = vec![
+                TxIn::new(
+                    "".to_string(),
+                    i,
+                    "".to_string(),
+                )
+            ];
+            let tx_outs = vec![
+                TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+            ];
+            let transactions = vec![Transaction::generate(&tx_ins, &tx_outs)];
+            add_block(&mut blockchain, &mut unspent_tx_outs, &transactions).expect("error");
         }
         let difficulty = get_difficulty(&blockchain);
         assert_eq!(difficulty, 1);

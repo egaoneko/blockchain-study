@@ -56,7 +56,7 @@ impl TxIn {
 
     pub fn get_is_valid_structure(&self) -> bool {
         if self.tx_out_index == 0 {
-            return false
+            return false;
         }
 
         true
@@ -67,9 +67,15 @@ impl Clone for TxIn {
     fn clone(&self) -> Self {
         Self {
             tx_out_id: self.tx_out_id.clone(),
-            tx_out_index: self.tx_out_index.clone(),
+            tx_out_index: self.tx_out_index,
             signature: self.signature.clone(),
         }
+    }
+}
+
+impl PartialEq for TxIn {
+    fn eq(&self, other: &Self) -> bool {
+        self.tx_out_id.eq(&other.tx_out_id) && self.tx_out_index == other.tx_out_index && self.signature.eq(&other.signature)
     }
 }
 
@@ -89,7 +95,7 @@ impl TxOut {
 
     pub fn get_is_valid_structure(&self) -> bool {
         if self.address.len() != 66 {
-            return false
+            return false;
         }
 
         true
@@ -102,6 +108,12 @@ impl Clone for TxOut {
             address: self.address.clone(),
             amount: self.amount,
         }
+    }
+}
+
+impl PartialEq for TxOut {
+    fn eq(&self, other: &Self) -> bool {
+        self.address.eq(&other.address) && self.amount == other.amount
     }
 }
 
@@ -137,16 +149,45 @@ impl Transaction {
         let ref_tx_ins = &self.tx_ins;
 
         if ref_tx_ins.into_iter().any(|tx_in| !tx_in.get_is_valid_structure()) {
-            return false
+            return false;
         }
 
         let ref_tx_outs = &self.tx_outs;
 
         if ref_tx_outs.into_iter().any(|tx_out| !tx_out.get_is_valid_structure()) {
-            return false
+            return false;
         }
 
         true
+    }
+}
+
+impl Clone for Transaction {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            tx_ins: self.tx_ins.clone(),
+            tx_outs: self.tx_outs.clone(),
+        }
+    }
+}
+
+impl PartialEq for Transaction {
+    fn eq(&self, other: &Self) -> bool {
+        let ref_self_tx_ins = &self.tx_ins;
+        let ref_other_tx_ins = &other.tx_ins;
+        let ref_self_tx_outs = &self.tx_outs;
+        let ref_other_tx_outs = &other.tx_outs;
+
+        self.id == other.id &&
+            ref_self_tx_ins
+                .into_iter()
+                .zip(ref_other_tx_ins)
+                .all(|(a, b)| a == b) &&
+            ref_self_tx_outs
+                .into_iter()
+                .zip(ref_other_tx_outs)
+                .all(|(a, b)| a == b)
     }
 }
 
@@ -736,7 +777,6 @@ mod test {
             Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
         ];
         assert!(!get_is_valid_transactions_structure(&transactions));
-
     }
 
     #[test]

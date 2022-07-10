@@ -41,10 +41,10 @@ mod test {
     fn test_serialize() {
         let blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         )];
@@ -56,10 +56,10 @@ mod test {
     fn test_deserialize() {
         let blockchain = vec![Block::new(
             0,
-            "41CDDA1F3F0F6BD2497997A6BBAB3188090B0404C1DA5FC854C174DD42CEFD2D".to_string(),
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
             "".to_string(),
             1465154705,
-            "block".to_string(),
+            vec![],
             0,
             0,
         )];
