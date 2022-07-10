@@ -7,6 +7,7 @@ use hex;
 use crate::errors::AppError;
 
 use crate::transaction::get_public_key;
+use crate::UnspentTxOut;
 
 #[derive(Debug)]
 pub struct Wallet {
@@ -70,11 +71,18 @@ fn get_keypair(private_key_path: String) -> Result<(String, String), AppError> {
     };
 }
 
+pub fn get_balance(address: &str, unspent_tx_outs: &Vec<UnspentTxOut>) -> usize {
+    unspent_tx_outs
+        .into_iter()
+        .filter(|u_tx_o| u_tx_o.address.eq(address))
+        .map(|u_tx_o| u_tx_o.amount)
+        .sum()
+}
+
 #[cfg(test)]
 mod test {
     use std::fs::{File, remove_file};
     use super::*;
-    use crate::constants::PRIVATE_KEY_PATH;
 
     #[test]
     fn test_new() {
@@ -83,7 +91,6 @@ mod test {
 
         let file = File::open(&path).unwrap();
         let (private_key, public_key) = get_keypair_from_file(file).unwrap();
-
         assert_eq!(wallet.private_key, private_key);
         assert_eq!(wallet.public_key, public_key);
 
@@ -92,5 +99,38 @@ mod test {
         assert_eq!(wallet.public_key, public_key);
 
         remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_get_balance() {
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "69202784cf6c645b87027eb1ccc0500609182f9f76f5be6e2fbe60bb1037b6ed".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                0,
+                "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40".to_string(),
+                50,
+            ),
+        ];
+
+        assert_eq!(get_balance("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b", &unspent_tx_outs), 150);
+        assert_eq!(get_balance("03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40", &unspent_tx_outs), 50);
     }
 }
