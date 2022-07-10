@@ -21,6 +21,8 @@ mod payload;
 mod utils;
 mod transaction;
 mod secp256k1;
+mod wallet;
+mod constants;
 
 use crate::block::Block;
 use crate::config::Config;

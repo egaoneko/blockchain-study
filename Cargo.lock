@@ -128,6 +128,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "futures-util",
+ "hex",
  "rocket",
  "rocket_contrib",
  "rocket_cors",
@@ -453,6 +454,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hkdf"
@@ -1075,6 +1082,7 @@ version = "0.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77cb4e47e3ccff9a1e168471c11e026c067f50ea7c11bf5e877cae505fb743a0"
 dependencies = [
+ "rand",
  "secp256k1-sys",
 ]
 

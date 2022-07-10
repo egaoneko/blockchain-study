@@ -435,7 +435,7 @@ mod test {
         b.timestamp = 0;
         assert_ne!(a, b);
 
-        let mut b = Block::new(
+        let b = Block::new(
             0,
             "e57a5313832eb6755a61a9ea87308ebfe04cb5aea378b3a0c0e2fba1051ceb1e".to_string(),
             "".to_string(),

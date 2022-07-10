@@ -59,7 +59,7 @@ pub fn launch_socket(
     });
 }
 
-async fn run(blockchain: Arc<RwLock<Vec<Block>>>, tx: UnboundedSender<BroadcastEvents>) {
+async fn run(blockchain: Arc<RwLock<Vec<Block>>>, _tx: UnboundedSender<BroadcastEvents>) {
     loop {
         thread::sleep(time::Duration::from_secs(FIXED_SLEEP));
         println!("run {:?}", blockchain);

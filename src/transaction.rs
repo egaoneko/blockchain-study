@@ -721,10 +721,7 @@ mod test {
             )
         ];
         let updated_unspent_tx_outs = update_unspent_tx_outs(&transactions, &unspent_tx_outs);
-        let expect = updated_unspent_tx_outs.get(0).unwrap();
-
         let expect = updated_unspent_tx_outs.get(1).unwrap();
-        println!("{:?}", updated_unspent_tx_outs);
         assert_eq!(expect.tx_out_id, "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e");
         assert_eq!(expect.tx_out_index, 0);
         assert_eq!(expect.address, "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b");
