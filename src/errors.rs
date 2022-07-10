@@ -29,6 +29,7 @@ impl fmt::Display for AppError {
         let message = match self.code {
             1000 => "Fail to add block",
             2000 => "Fail to sign in",
+            2001 => "Fail to process transactions",
             _ => "Unknown",
         };
 
