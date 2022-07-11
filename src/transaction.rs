@@ -375,12 +375,11 @@ pub fn get_public_key(private_key: &str) -> String {
 }
 
 pub fn sign_tx_in(
-    transaction: &Transaction,
-    tx_in_index: usize,
+    transaction_id: &str,
+    tx_in: &TxIn,
     private_key: &str,
     unspent_tx_outs: &Vec<UnspentTxOut>,
 ) -> Result<String, AppError> {
-    let tx_in = transaction.tx_ins.get(tx_in_index).unwrap();
     let referenced_unspent_tx_out = find_unspent_tx_out(&tx_in.tx_out_id, tx_in.tx_out_index, &unspent_tx_outs);
     if referenced_unspent_tx_out.is_none() {
         return Err(AppError::new(2000));
@@ -392,7 +391,7 @@ pub fn sign_tx_in(
 
     let secp = Secp256k1::new();
     let secret_key = SecretKey::from_str(private_key).unwrap();
-    let message = message_from_str(&transaction.id).unwrap();
+    let message = message_from_str(&transaction_id).unwrap();
     Ok(secp.sign_ecdsa(&message, &secret_key).to_string())
 }
 
@@ -817,7 +816,7 @@ mod test {
             )
         ];
         assert_eq!(
-            sign_tx_in(&transaction, 0, "27f5005f5f58f8711e99577e8b87e28ab4c2151f9289ac1203ccecdb94602a5b", &unspent_tx_outs).unwrap(),
+            sign_tx_in(&transaction.id, tx_ins.get(0).unwrap(), "27f5005f5f58f8711e99577e8b87e28ab4c2151f9289ac1203ccecdb94602a5b", &unspent_tx_outs).unwrap(),
             "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a"
         );
     }
