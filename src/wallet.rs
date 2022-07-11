@@ -71,6 +71,20 @@ fn get_keypair(private_key_path: String) -> Result<(String, String), AppError> {
     };
 }
 
+fn find_tx_outs_for_amount(my_unspent_tx_outs: &Vec<UnspentTxOut>, amount: usize) -> Result<(Vec<UnspentTxOut>, usize), AppError> {
+    let mut current_amount = 0;
+    let mut included_unspent_tx_outs = vec![];
+    for my_unspent_tx_out in my_unspent_tx_outs {
+        included_unspent_tx_outs.push(my_unspent_tx_out.clone());
+        current_amount = current_amount + my_unspent_tx_out.amount;
+
+        if current_amount >= amount {
+            return Ok((included_unspent_tx_outs, current_amount - amount));
+        }
+    }
+    Err(AppError::new(2002))
+}
+
 pub fn get_balance(address: &str, unspent_tx_outs: &Vec<UnspentTxOut>) -> usize {
     unspent_tx_outs
         .into_iter()
@@ -99,6 +113,44 @@ mod test {
         assert_eq!(wallet.public_key, public_key);
 
         remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_find_tx_outs_for_amount() {
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "69202784cf6c645b87027eb1ccc0500609182f9f76f5be6e2fbe60bb1037b6ed".to_string(),
+                0,
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            ),
+        ];
+
+        let (included_unspent_tx_outs, left_over_amount) = find_tx_outs_for_amount(&unspent_tx_outs, 100).unwrap();
+        assert_eq!(included_unspent_tx_outs.len(), 2);
+        assert_eq!(included_unspent_tx_outs.get(0).unwrap().tx_out_id, "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea");
+        assert_eq!(included_unspent_tx_outs.get(1).unwrap().tx_out_id, "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e");
+        assert_eq!(left_over_amount, 0);
+
+        let (included_unspent_tx_outs, left_over_amount) = find_tx_outs_for_amount(&unspent_tx_outs, 70).unwrap();
+        assert_eq!(included_unspent_tx_outs.len(), 2);
+        assert_eq!(included_unspent_tx_outs.get(0).unwrap().tx_out_id, "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea");
+        assert_eq!(included_unspent_tx_outs.get(1).unwrap().tx_out_id, "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e");
+        assert_eq!(left_over_amount, 30);
+
+        assert!(find_tx_outs_for_amount(&unspent_tx_outs, 200).is_err());
     }
 
     #[test]

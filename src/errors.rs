@@ -30,6 +30,7 @@ impl fmt::Display for AppError {
             1000 => "Fail to add block",
             2000 => "Fail to sign in",
             2001 => "Fail to process transactions",
+            2002 => "Fail to send transactions",
             3000 => "Fail to read private key",
             3001 => "Fail to create private key",
             3002 => "Fail to write private key",
