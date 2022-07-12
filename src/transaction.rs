@@ -3,10 +3,9 @@ use std::str::FromStr;
 use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
 use secp256k1::{Secp256k1, ecdsa, PublicKey, SecretKey};
+use crate::constants::COINBASE_AMOUNT;
 use crate::errors::AppError;
 use crate::secp256k1::{message_from_str};
-
-const COINBASE_AMOUNT: usize = 50;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UnspentTxOut {
@@ -55,10 +54,6 @@ impl TxIn {
     }
 
     pub fn get_is_valid_structure(&self) -> bool {
-        if self.tx_out_index == 0 {
-            return false;
-        }
-
         true
     }
 }
@@ -361,10 +356,10 @@ fn get_is_valid_transactions_structure(transactions: &Vec<Transaction>) -> bool 
     transactions.into_iter().all(|transactions| transactions.get_is_valid_structure())
 }
 
-pub fn get_coinbase_transaction(address: String, block_index: usize) -> Transaction {
+pub fn get_coinbase_transaction(address: &str, block_index: usize) -> Transaction {
     return Transaction::generate(
         &vec![TxIn::new("".to_string(), block_index, "".to_string())],
-        &vec![TxOut::new(address, COINBASE_AMOUNT)],
+        &vec![TxOut::new(address.to_string(), COINBASE_AMOUNT)],
     );
 }
 
@@ -779,7 +774,7 @@ mod test {
     fn test_get_coinbase_transaction() {
         let block_index: usize = 1;
         let address = "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b";
-        let transaction = get_coinbase_transaction(address.to_string(), block_index);
+        let transaction = get_coinbase_transaction(address, block_index);
         assert_eq!(transaction.id, get_transaction_id(&transaction.tx_ins, &transaction.tx_outs));
 
         let tx_in = transaction.tx_ins.get(0).unwrap();

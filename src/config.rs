@@ -14,6 +14,9 @@ pub struct Config {
 
     /// port of websocket
     pub uuid: String,
+
+    /// path of private key
+    pub private_key_path: String,
 }
 
 impl Config {
@@ -34,6 +37,6 @@ impl Config {
             opt private_key_path:String = PRIVATE_KEY_PATH.to_string(), desc:"The path of private key."; // an option -u or --private-key-path
         }.parse_or_exit();
 
-        Config { socket_port: args.socket_port, http_port: args.http_port, uuid }
+        Config { socket_port: args.socket_port, http_port: args.http_port, private_key_path: args.private_key_path, uuid }
     }
 }

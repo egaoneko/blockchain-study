@@ -129,7 +129,7 @@ pub fn create_transaction(
         .map(|tx_in| TxIn::new(
             tx_in.tx_out_id.clone(),
             tx_in.tx_out_index,
-            sign_tx_in(&tx.id, &tx_in, &wallet.private_key, unspent_tx_outs).unwrap()
+            sign_tx_in(&tx.id, &tx_in, &wallet.private_key, unspent_tx_outs).unwrap(),
         ))
         .collect();
 
@@ -262,8 +262,10 @@ mod test {
 
     #[test]
     fn test_create_transaction() {
-        let path = "sample/private_key";
-        let wallet = Wallet::new(path.to_string());
+        let wallet = Wallet {
+            private_key: "eb35a95c6c1bcd1164e5f23629797131bd24aae3995b831be94c8e8fa37ee2d8".to_string(),
+            public_key: "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+        };
         let unspent_tx_outs = vec![
             UnspentTxOut::new(
                 "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
@@ -308,6 +310,5 @@ mod test {
         ).unwrap();
         assert_eq!(tx.tx_ins.len(), 3);
         assert_eq!(tx.tx_outs.get(0).unwrap().amount, 150);
-        remove_file(&path).unwrap();
     }
 }

@@ -30,6 +30,7 @@ use crate::events::BroadcastEvents;
 use crate::socket::launch_socket;
 use crate::http::launch_http;
 use crate::transaction::UnspentTxOut;
+use crate::wallet::Wallet;
 
 /// # Rust Blockchain
 ///
@@ -48,9 +49,10 @@ pub fn run(config: Config) {
     let blockchain: Arc<RwLock<Vec<Block>>> = Arc::new(RwLock::new(vec![genesis_block]));
     let unspent_tx_outs: Arc<RwLock<Vec<UnspentTxOut>>> = Arc::new(RwLock::new(vec![]));
     let broadcast_channel = mpsc::unbounded_channel::<BroadcastEvents>();
+    let wallet: Arc<RwLock<Wallet>> = Arc::new(RwLock::new(Wallet::new(config.private_key_path.to_string())));
 
     println!("{:?}{:?}", blockchain, config);
 
-    launch_http(&config, &blockchain,  &unspent_tx_outs,broadcast_channel.0.clone());
+    launch_http(&config, &blockchain,  &unspent_tx_outs, &wallet,broadcast_channel.0.clone());
     launch_socket(&config, &blockchain, broadcast_channel);
 }

@@ -4,9 +4,10 @@ use chrono::{Utc};
 use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
-use crate::transaction::{process_transactions, Transaction};
+use crate::transaction::{get_coinbase_transaction, process_transactions, Transaction};
 use crate::UnspentTxOut;
 use crate::utils::get_is_hash_matches_difficulty;
+use crate::wallet::{create_transaction, Wallet};
 
 const BLOCK_GENERATION_INTERVAL: usize = 10;
 const DIFFICULTY_ADJUSTMENT_INTERVAL: usize = 10;
@@ -83,6 +84,36 @@ impl Block {
                 nonce,
             );
         }
+    }
+
+    /// Generate a raw block with data
+    pub fn generate_raw(blockchain: &Vec<Block>, data: &Vec<Transaction>) -> Block {
+        let latest = get_latest_block(blockchain);
+        let difficulty = get_difficulty(blockchain);
+        Block::generate(data, latest, difficulty)
+    }
+
+    /// Generate a block with coinbase transaction and previous block
+    pub fn generate_with_coinbase_transaction(blockchain: &Vec<Block>, wallet: &Wallet) -> Block {
+        let latest = get_latest_block(blockchain);
+        Block::generate_raw(
+            blockchain,
+            &vec![get_coinbase_transaction(wallet.public_key.as_str(), latest.index + 1)],
+        )
+    }
+
+    /// Generate a block with transaction
+    pub fn generate_with_transaction(
+        blockchain: &Vec<Block>,
+        wallet: &Wallet,
+        unspent_tx_outs: &Vec<UnspentTxOut>,
+        receiver_address: &str,
+        amount: usize,
+    ) -> Result<Block, AppError> {
+        let latest = get_latest_block(blockchain);
+        let coinbase_tx = get_coinbase_transaction(wallet.public_key.as_str(), latest.index + 1);
+        let tx = create_transaction(receiver_address, amount, wallet, unspent_tx_outs)?;
+        Ok(Block::generate_raw(blockchain, &vec![coinbase_tx, tx]))
     }
 
     /// Recalculate and return hash
@@ -185,21 +216,14 @@ pub fn get_latest_block(blockchain: &Vec<Block>) -> &Block {
 ///
 /// # Errors
 /// If it is not valid compared to the previous block, it returns error 1000.
-pub fn add_block(blockchain: &mut Vec<Block>, unspent_tx_outs: &mut Vec<UnspentTxOut>, data: &Vec<Transaction>) -> Result<(), AppError> {
-    let latest = get_latest_block(blockchain);
-    let difficulty = get_difficulty(blockchain);
-    let new_block = Block::generate(data, latest, difficulty);
-
+pub fn add_block(blockchain: &mut Vec<Block>, unspent_tx_outs: &mut Vec<UnspentTxOut>, new_block: &Block) -> Result<(), AppError> {
     if !get_is_valid_new_block(&new_block, get_latest_block(blockchain)) {
         Err(AppError::new(1000))
     } else {
-        if let Ok(processed_unspent_tx_outs) = process_transactions(&new_block.data, unspent_tx_outs, new_block.index) {
-            blockchain.push(new_block);
-            let _ = mem::replace(&mut *unspent_tx_outs, processed_unspent_tx_outs);
-            Ok(())
-        } else {
-            Err(AppError::new(1000))
-        }
+        let processed_unspent_tx_outs = process_transactions(&new_block.data, unspent_tx_outs, new_block.index)?;
+        blockchain.push(new_block.clone());
+        let _ = mem::replace(&mut *unspent_tx_outs, processed_unspent_tx_outs);
+        Ok(())
     }
 }
 
@@ -231,6 +255,7 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
 #[cfg(test)]
 mod test {
     use crate::transaction::{TxIn, TxOut};
+    use crate::constants::COINBASE_AMOUNT;
     use super::*;
 
     #[test]
@@ -275,6 +300,118 @@ mod test {
         assert_eq!(next.timestamp, timestamp);
         assert_eq!(next.hash, calculate_hash(1, previous.hash.as_str(), timestamp, &data, 0, 0));
         assert_eq!(next.data, data);
+    }
+
+    #[test]
+    fn test_block_generate_raw() {
+        let previous = Block::new(
+            0,
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
+            "".to_string(),
+            1465154705,
+            vec![],
+            0,
+            0,
+        );
+        let data = vec![];
+        let blockchain = vec![previous.clone()];
+        let next = Block::generate_raw(&blockchain, &data);
+        let timestamp = Utc::now().timestamp() as usize;
+        assert_eq!(next.index, 1);
+        assert_eq!(next.timestamp, timestamp);
+        assert_eq!(next.hash, calculate_hash(1, previous.hash.as_str(), timestamp, &data, 0, 0));
+        assert_eq!(next.data, data);
+    }
+
+    #[test]
+    fn test_block_generate_with_coinbase_transaction() {
+        let wallet = Wallet {
+            private_key: "eb35a95c6c1bcd1164e5f23629797131bd24aae3995b831be94c8e8fa37ee2d8".to_string(),
+            public_key: "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+        };
+        let previous = Block::new(
+            0,
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
+            "".to_string(),
+            1465154705,
+            vec![],
+            0,
+            0,
+        );
+        let blockchain = vec![previous];
+        let block = Block::generate_with_coinbase_transaction(&blockchain, &wallet);
+        let timestamp = Utc::now().timestamp() as usize;
+        assert_eq!(block.index, 1);
+        assert_eq!(block.timestamp, timestamp);
+
+        let tx = block.data.get(0).unwrap();
+        let tx_out = tx.tx_outs.get(0).unwrap();
+        assert_eq!(tx_out.address, "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192");
+        assert_eq!(tx_out.amount, COINBASE_AMOUNT);
+    }
+
+    #[test]
+    fn test_block_generate_with_transaction() {
+        let wallet = Wallet {
+            private_key: "eb35a95c6c1bcd1164e5f23629797131bd24aae3995b831be94c8e8fa37ee2d8".to_string(),
+            public_key: "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+        };
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "69202784cf6c645b87027eb1ccc0500609182f9f76f5be6e2fbe60bb1037b6ed".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                0,
+                "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40".to_string(),
+                50,
+            ),
+        ];
+        let previous = Block::new(
+            0,
+            "41cdda1f3f0f6bd2497997a6bbab3188090b0404c1da5fc854c174dd42cefd2d".to_string(),
+            "".to_string(),
+            1465154705,
+            vec![],
+            0,
+            0,
+        );
+        let blockchain = vec![previous];
+        let block = Block::generate_with_transaction(
+            &blockchain,
+            &wallet,
+            &unspent_tx_outs,
+            "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40",
+            150,
+        ).unwrap();
+        let timestamp = Utc::now().timestamp() as usize;
+        assert_eq!(block.index, 1);
+        assert_eq!(block.timestamp, timestamp);
+
+        let tx = block.data.get(0).unwrap();
+        let tx_out = tx.tx_outs.get(0).unwrap();
+        assert_eq!(tx_out.address, "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192");
+        assert_eq!(tx_out.amount, COINBASE_AMOUNT);
+
+        let tx = block.data.get(1).unwrap();
+        let tx_out = tx.tx_outs.get(0).unwrap();
+        assert_eq!(tx_out.address, "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40");
+        assert_eq!(tx_out.amount, 150);
     }
 
     #[test]
@@ -473,14 +610,14 @@ mod test {
             0,
             0,
         );
-        let next = Block::generate(&vec![], &previous, 0);
+        let next = Block::generate( &vec![], &previous, 0);
         assert!(get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.timestamp = Utc::now().timestamp() as usize - TIMESTAMP_INTERVAL - 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
     }
@@ -496,26 +633,26 @@ mod test {
             0,
             0,
         );
-        let next = Block::generate(&vec![], &previous, 0);
+        let next = Block::generate( &vec![], &previous, 0);
         assert!(get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.index = 2;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.previous_hash = "invalid".to_string();
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.data = vec![Transaction::generate(&vec![], &vec![])];
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate(&vec![], &previous, 0);
+        let mut next = Block::generate( &vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
     }
@@ -543,7 +680,7 @@ mod test {
             0,
             0,
         );
-        let next_block = Block::generate(&vec![], &genesis_block, 0);
+        let next_block = Block::generate( &vec![], &genesis_block, 0);
         let blockchain = vec![
             genesis_block.clone(),
             next_block.clone(),
@@ -571,7 +708,7 @@ mod test {
             0,
             0,
         );
-        let mut next_block = Block::generate(&vec![], &genesis_block, 0);
+        let mut next_block = Block::generate( &vec![], &genesis_block, 0);
         next_block.index = 2;
         let blockchain = vec![
             genesis_block.clone(),
@@ -647,7 +784,8 @@ mod test {
             Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
         ];
         let mut unspent_tx_outs = vec![];
-        assert!(add_block(&mut blockchain, &mut unspent_tx_outs, &transactions).is_ok());
+        let block = Block::generate_raw(&blockchain, &transactions);
+        assert!(add_block(&mut blockchain, &mut unspent_tx_outs, &block).is_ok());
         assert_eq!(blockchain.len(), 2);
         assert_eq!(unspent_tx_outs.len(), 1);
     }
@@ -713,7 +851,8 @@ mod test {
                 TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
             ];
             let transactions = vec![Transaction::generate(&tx_ins, &tx_outs)];
-            add_block(&mut blockchain, &mut unspent_tx_outs, &transactions).expect("error");
+            let block = Block::generate_raw(&blockchain, &transactions);
+            add_block(&mut blockchain, &mut unspent_tx_outs, &block).expect("error");
         }
         let difficulty = get_difficulty(&blockchain);
         assert_eq!(difficulty, 1);
