@@ -23,6 +23,7 @@ mod transaction;
 mod secp256k1;
 mod wallet;
 mod constants;
+mod transaction_pool;
 
 use crate::block::Block;
 use crate::config::Config;

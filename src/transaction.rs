@@ -226,7 +226,7 @@ fn get_tx_in_amount(tx_in: &TxIn, unspent_tx_outs: &Vec<UnspentTxOut>) -> usize 
     };
 }
 
-fn get_is_valid_transaction(transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
+pub fn get_is_valid_transaction(transaction: &Transaction, unspent_tx_outs: &Vec<UnspentTxOut>) -> bool {
     if !transaction.get_transaction_id().eq(&transaction.id) {
         return false;
     }
@@ -309,7 +309,8 @@ fn get_is_valid_block_transactions(transactions: &Vec<Transaction>, unspent_tx_o
         return false;
     }
 
-    let tx_ins = transactions.into_iter()
+    let tx_ins = transactions
+        .into_iter()
         .map(|tx| &tx.tx_ins)
         .flatten()
         .collect();

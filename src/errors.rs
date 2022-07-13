@@ -34,6 +34,8 @@ impl fmt::Display for AppError {
             3000 => "Fail to read private key",
             3001 => "Fail to create private key",
             3002 => "Fail to write private key",
+            4000 => "Fail to add transaction pool with invalid unspent tx outs",
+            4001 => "Fail to add transaction pool with invalid transaction pool",
             _ => "Unknown",
         };
 
