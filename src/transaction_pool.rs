@@ -2,7 +2,7 @@ use crate::errors::AppError;
 use crate::transaction::{get_is_valid_transaction, Transaction, TxIn};
 use crate::UnspentTxOut;
 
-fn get_tx_pool_ins(transaction_pool: &Vec<Transaction>) -> Vec<&TxIn> {
+pub fn get_tx_pool_ins(transaction_pool: &Vec<Transaction>) -> Vec<&TxIn> {
     transaction_pool
         .into_iter()
         .map(|tx| &tx.tx_ins)
@@ -45,18 +45,10 @@ pub fn add_to_transaction_pool(tx: &Transaction, transaction_pool: &mut Vec<Tran
 }
 
 pub fn update_transaction_pool(transaction_pool: &Vec<Transaction>, unspent_tx_outs: &Vec<UnspentTxOut>) -> Vec<Transaction> {
-    let mut invalid_txs = vec![];
-
-    for tx in transaction_pool {
-        let tx_ins = &tx.tx_ins;
-
-        for tx_in in tx_ins.into_iter() {
-            if !has_tx_in(tx_in, unspent_tx_outs) {
-                invalid_txs.push(tx);
-                break;
-            }
-        }
-    }
+    let invalid_txs = transaction_pool
+        .into_iter()
+        .filter(|&tx| tx.tx_ins.iter().any(|tx_in| !has_tx_in(tx_in, unspent_tx_outs)))
+        .collect::<Vec<&Transaction>>();
 
     if invalid_txs.len() == 0 {
         return transaction_pool.clone();
@@ -65,7 +57,7 @@ pub fn update_transaction_pool(transaction_pool: &Vec<Transaction>, unspent_tx_o
     let ref_invalid_txs = &invalid_txs;
     transaction_pool
         .into_iter()
-        .filter(|&tx| ref_invalid_txs.into_iter().all(|&x| !x.eq(&tx)))
+        .filter(|&tx| ref_invalid_txs.into_iter().all(|&x| !x.eq(tx)))
         .map(|v| v.clone())
         .collect::<Vec<Transaction>>()
 }

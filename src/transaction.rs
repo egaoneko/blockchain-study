@@ -429,7 +429,7 @@ mod test {
         ];
         let transaction = Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs);
 
-        assert_eq!(transaction.id, get_transaction_id(&tx_ins, &tx_outs), );
+        assert_eq!(transaction.id, get_transaction_id(&tx_ins, &tx_outs));
     }
 
     #[test]

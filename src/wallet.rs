@@ -7,6 +7,7 @@ use hex;
 use crate::errors::AppError;
 
 use crate::transaction::{get_public_key, sign_tx_in, Transaction, TxIn, TxOut};
+use crate::transaction_pool::get_tx_pool_ins;
 use crate::UnspentTxOut;
 
 #[derive(Debug)]
@@ -134,6 +135,20 @@ pub fn create_transaction(
         .collect();
 
     Ok(tx)
+}
+
+pub fn filter_tx_pool_txs(unspent_tx_outs: &Vec<UnspentTxOut>, transaction_pool: &Vec<Transaction>) -> Vec<UnspentTxOut> {
+    let tx_ins = get_tx_pool_ins(transaction_pool);
+
+    unspent_tx_outs
+        .into_iter()
+        .filter(|&unspent_tx_out| {
+            let ref_tx_ins = &tx_ins;
+            ref_tx_ins.into_iter()
+                .all(|tx_in| !(tx_in.tx_out_index == unspent_tx_out.tx_out_index && tx_in.tx_out_id.eq(&unspent_tx_out.tx_out_id)))
+        })
+        .map(|v| v.clone())
+        .collect()
 }
 
 #[cfg(test)]
@@ -310,5 +325,57 @@ mod test {
         ).unwrap();
         assert_eq!(tx.tx_ins.len(), 3);
         assert_eq!(tx.tx_outs.get(0).unwrap().amount, 150);
+    }
+
+    #[test]
+    fn test_filter_tx_pool_txs() {
+        let wallet = Wallet {
+            private_key: "eb35a95c6c1bcd1164e5f23629797131bd24aae3995b831be94c8e8fa37ee2d8".to_string(),
+            public_key: "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+        };
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "69202784cf6c645b87027eb1ccc0500609182f9f76f5be6e2fbe60bb1037b6ed".to_string(),
+                0,
+                wallet.public_key.to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                0,
+                "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40".to_string(),
+                50,
+            ),
+        ];
+
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            ),
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transaction_pool = vec![Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs)];
+
+        let new_unspent_tx_outs = filter_tx_pool_txs(&unspent_tx_outs, &transaction_pool);
+        assert_eq!(new_unspent_tx_outs.len(), 3);
+
+        let new_unspent_tx_outs = filter_tx_pool_txs(&new_unspent_tx_outs, &transaction_pool);
+        assert_eq!(new_unspent_tx_outs.len(), 3);
     }
 }
