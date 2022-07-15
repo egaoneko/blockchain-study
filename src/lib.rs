@@ -26,7 +26,7 @@ mod wallet;
 mod constants;
 mod transaction_pool;
 
-use crate::block::Block;
+use crate::block::{Block, get_unspent_tx_outs};
 use crate::config::Config;
 use crate::events::BroadcastEvents;
 use crate::socket::launch_socket;
@@ -57,12 +57,16 @@ pub fn run(config: Config) {
         0,
     );
     let blockchain: Arc<RwLock<Vec<Block>>> = Arc::new(RwLock::new(vec![genesis_block]));
-    let unspent_tx_outs: Arc<RwLock<Vec<UnspentTxOut>>> = Arc::new(RwLock::new(vec![]));
-    let broadcast_channel = mpsc::unbounded_channel::<BroadcastEvents>();
+    let transaction_pool: Arc<RwLock<Vec<Transaction>>> = Arc::new(RwLock::new(vec![]));
     let wallet: Arc<RwLock<Wallet>> = Arc::new(RwLock::new(Wallet::new(config.private_key_path.to_string())));
+    let broadcast_channel = mpsc::unbounded_channel::<BroadcastEvents>();
+
+    let b = blockchain.read().unwrap();
+    let unspent_tx_outs: Arc<RwLock<Vec<UnspentTxOut>>> = Arc::new(RwLock::new(get_unspent_tx_outs(&b).unwrap()));
+    drop(b);
 
     println!("{:?}{:?}", blockchain, config);
 
-    launch_http(&config, &blockchain, &unspent_tx_outs, &wallet, broadcast_channel.0.clone());
-    launch_socket(&config, &blockchain, broadcast_channel);
+    launch_http(&config, &blockchain, &unspent_tx_outs, &transaction_pool, &wallet, broadcast_channel.0.clone());
+    launch_socket(&config, &blockchain, &unspent_tx_outs, &transaction_pool, &wallet, broadcast_channel);
 }

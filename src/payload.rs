@@ -4,6 +4,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PayloadType {
     Blockchain,
+    Transaction,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

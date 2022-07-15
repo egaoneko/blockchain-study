@@ -5,6 +5,7 @@ use serde::{Serialize, Deserialize};
 
 use crate::errors::AppError;
 use crate::transaction::{get_coinbase_transaction, process_transactions, Transaction};
+use crate::transaction_pool::update_transaction_pool;
 use crate::UnspentTxOut;
 use crate::utils::get_is_hash_matches_difficulty;
 use crate::wallet::{create_transaction, Wallet};
@@ -94,11 +95,16 @@ impl Block {
     }
 
     /// Generate a block with coinbase transaction and previous block
-    pub fn generate_with_coinbase_transaction(blockchain: &Vec<Block>, wallet: &Wallet) -> Block {
+    pub fn generate_with_coinbase_transaction(blockchain: &Vec<Block>, transaction_pool: &Vec<Transaction>, wallet: &Wallet) -> Block {
         let latest = get_latest_block(blockchain);
         Block::generate_raw(
             blockchain,
-            &vec![get_coinbase_transaction(wallet.public_key.as_str(), latest.index + 1)],
+            &vec![
+                get_coinbase_transaction(wallet.public_key.as_str(), latest.index + 1),
+            ]
+                .into_iter()
+                .chain(transaction_pool.clone())
+                .collect(),
         )
     }
 
@@ -192,12 +198,16 @@ fn get_is_valid_new_block(new_block: &Block, previous_block: &Block) -> bool {
 }
 
 fn get_is_valid_chain(genesis_block: &Block, blockchain: &Vec<Block>) -> bool {
-    if genesis_block != blockchain.get(0).unwrap() {
-        false
-    } else if blockchain.len() == 1 {
-        true
+    if let Some(last) = blockchain.get(0) {
+        if genesis_block != last {
+            false
+        } else if blockchain.len() == 1 {
+            true
+        } else {
+            blockchain.windows(2).all(|window| get_is_valid_new_block(&window[1], &window[0]))
+        }
     } else {
-        blockchain.windows(2).all(|window| get_is_valid_new_block(&window[1], &window[0]))
+        false
     }
 }
 
@@ -216,13 +226,15 @@ pub fn get_latest_block(blockchain: &Vec<Block>) -> &Block {
 ///
 /// # Errors
 /// If it is not valid compared to the previous block, it returns error 1000.
-pub fn add_block(blockchain: &mut Vec<Block>, unspent_tx_outs: &mut Vec<UnspentTxOut>, new_block: &Block) -> Result<(), AppError> {
+pub fn add_block(blockchain: &mut Vec<Block>, unspent_tx_outs: &mut Vec<UnspentTxOut>, transaction_pool: &mut Vec<Transaction>, new_block: &Block) -> Result<(), AppError> {
     if !get_is_valid_new_block(&new_block, get_latest_block(blockchain)) {
         Err(AppError::new(1000))
     } else {
         let processed_unspent_tx_outs = process_transactions(&new_block.data, unspent_tx_outs, new_block.index)?;
         blockchain.push(new_block.clone());
         let _ = mem::replace(&mut *unspent_tx_outs, processed_unspent_tx_outs);
+        let updated_transaction_pool = update_transaction_pool(transaction_pool, unspent_tx_outs);
+        let _ = mem::replace(&mut *transaction_pool, updated_transaction_pool);
         Ok(())
     }
 }
@@ -250,6 +262,15 @@ pub fn get_difficulty(blockchain: &Vec<Block>) -> usize {
     } else {
         prev_adjustment_block.difficulty
     };
+}
+
+/// Get UnspentTxOut from blockchain.
+pub fn get_unspent_tx_outs(blockchain: &Vec<Block>) -> Result<Vec<UnspentTxOut>, AppError> {
+    let mut unspent_tx_outs = vec![];
+    blockchain.into_iter().for_each(|block| {
+        unspent_tx_outs = process_transactions(&block.data, &unspent_tx_outs, block.index).unwrap();
+    });
+    Ok(unspent_tx_outs)
 }
 
 #[cfg(test)]
@@ -339,15 +360,31 @@ mod test {
             0,
         );
         let blockchain = vec![previous];
-        let block = Block::generate_with_coinbase_transaction(&blockchain, &wallet);
+        let transaction_pool = vec![];
+        let block = Block::generate_with_coinbase_transaction(&blockchain, &transaction_pool, &wallet);
         let timestamp = Utc::now().timestamp() as usize;
         assert_eq!(block.index, 1);
         assert_eq!(block.timestamp, timestamp);
+        assert_eq!(block.data.len(), 1);
 
         let tx = block.data.get(0).unwrap();
         let tx_out = tx.tx_outs.get(0).unwrap();
         assert_eq!(tx_out.address, "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192");
         assert_eq!(tx_out.amount, COINBASE_AMOUNT);
+
+        let tx_ins = vec![
+            TxIn::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "3045022100d73a8f9c7ce7fd44517ff0db38733af84a0ee1bc3ec89ed2c82dad412374057602203eac06b3c11dcb004991f39f9f23e46d3354ea6de8bfa73da8ca77adbb57988a".to_string(),
+            ),
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transaction_pool = vec![Transaction::new("2ffbf11ad81702d9a4b07b4a869b0ef304cdaebc7efcbb79e80942cdfef7cd0d".to_string(), &tx_ins, &tx_outs)];
+        let block = Block::generate_with_coinbase_transaction(&blockchain, &transaction_pool, &wallet);
+        assert_eq!(block.data.len(), 2);
     }
 
     #[test]
@@ -610,14 +647,14 @@ mod test {
             0,
             0,
         );
-        let next = Block::generate( &vec![], &previous, 0);
+        let next = Block::generate(&vec![], &previous, 0);
         assert!(get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = Utc::now().timestamp() as usize - TIMESTAMP_INTERVAL - 1;
         assert!(!get_is_valid_timestamp(&next, &previous));
     }
@@ -633,26 +670,26 @@ mod test {
             0,
             0,
         );
-        let next = Block::generate( &vec![], &previous, 0);
+        let next = Block::generate(&vec![], &previous, 0);
         assert!(get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.index = 2;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.previous_hash = "invalid".to_string();
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.data = vec![Transaction::generate(&vec![], &vec![])];
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
 
-        let mut next = Block::generate( &vec![], &previous, 0);
+        let mut next = Block::generate(&vec![], &previous, 0);
         next.timestamp = previous.timestamp + TIMESTAMP_INTERVAL + 1;
         assert!(!get_is_valid_new_block(&next, &previous));
     }
@@ -680,7 +717,7 @@ mod test {
             0,
             0,
         );
-        let next_block = Block::generate( &vec![], &genesis_block, 0);
+        let next_block = Block::generate(&vec![], &genesis_block, 0);
         let blockchain = vec![
             genesis_block.clone(),
             next_block.clone(),
@@ -708,7 +745,7 @@ mod test {
             0,
             0,
         );
-        let mut next_block = Block::generate( &vec![], &genesis_block, 0);
+        let mut next_block = Block::generate(&vec![], &genesis_block, 0);
         next_block.index = 2;
         let blockchain = vec![
             genesis_block.clone(),
@@ -784,10 +821,12 @@ mod test {
             Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
         ];
         let mut unspent_tx_outs = vec![];
+        let mut transaction_pool = vec![];
         let block = Block::generate_raw(&blockchain, &transactions);
-        assert!(add_block(&mut blockchain, &mut unspent_tx_outs, &block).is_ok());
+        assert!(add_block(&mut blockchain, &mut unspent_tx_outs, &mut transaction_pool, &block).is_ok());
         assert_eq!(blockchain.len(), 2);
         assert_eq!(unspent_tx_outs.len(), 1);
+        assert_eq!(transaction_pool.len(), 0);
     }
 
     #[test]
@@ -836,6 +875,7 @@ mod test {
             0,
         )];
         let mut unspent_tx_outs = vec![];
+        let mut transaction_pool = vec![];
         let difficulty = get_difficulty(&blockchain);
         assert_eq!(difficulty, 0);
 
@@ -852,9 +892,49 @@ mod test {
             ];
             let transactions = vec![Transaction::generate(&tx_ins, &tx_outs)];
             let block = Block::generate_raw(&blockchain, &transactions);
-            add_block(&mut blockchain, &mut unspent_tx_outs, &block).expect("error");
+            add_block(&mut blockchain, &mut unspent_tx_outs, &mut transaction_pool, &block).expect("error");
         }
         let difficulty = get_difficulty(&blockchain);
         assert_eq!(difficulty, 1);
+    }
+
+    #[test]
+    fn test_get_unspent_tx_outs() {
+        let tx_ins = vec![
+            TxIn::new(
+                "".to_string(),
+                1,
+                "".to_string(),
+            )
+        ];
+        let tx_outs = vec![
+            TxOut::new("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(), 50)
+        ];
+        let transactions = vec![
+            Transaction::new("f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(), &tx_ins, &tx_outs)
+        ];
+        let genesis_transaction = Transaction::new(
+            "b5516eb9915e9be6868575e87bb450d8285505f004f944bf0d99c6131995bf41".to_string(),
+            &vec![TxIn::new("".to_string(), 0, "".to_string())],
+            &vec![TxOut::new(
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                50,
+            )],
+        );
+        let genesis_block = Block::new(
+            0,
+            "c1fcd470499b2871ed8276cfcd3abbdca6ac1432515f30d59835c9d7e35e2756".to_string(),
+            "".to_string(),
+            1655831820,
+            vec![genesis_transaction],
+            0,
+            0,
+        );
+        let mut blockchain = vec![
+            genesis_block.clone(),
+            Block::generate(&transactions, &genesis_block, 0),
+        ];
+        let unspent_tx_outs = get_unspent_tx_outs(&blockchain).unwrap();
+        assert_eq!(unspent_tx_outs.len(), 2);
     }
 }

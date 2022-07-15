@@ -1,4 +1,4 @@
-use crate::Block;
+use crate::{Block, Transaction};
 use crate::connection::Connection;
 
 #[derive(Debug)]
@@ -7,4 +7,5 @@ pub enum BroadcastEvents {
     Quit(String),
     Peer(String),
     Blockchain(Vec<Block>, Option<String>),
+    Transaction(Vec<Transaction>, Option<String>),
 }

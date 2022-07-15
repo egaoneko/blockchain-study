@@ -83,7 +83,7 @@ fn find_tx_outs_for_amount(my_unspent_tx_outs: &Vec<UnspentTxOut>, amount: usize
             return Ok((included_unspent_tx_outs, current_amount - amount));
         }
     }
-    Err(AppError::new(2002))
+    Err(AppError::new(2003))
 }
 
 fn create_tx_outs(receiver_address: &str, my_address: &str, amount: usize, left_over_amount: usize) -> Vec<TxOut> {
@@ -103,6 +103,14 @@ pub fn get_balance(address: &str, unspent_tx_outs: &Vec<UnspentTxOut>) -> usize 
         .sum()
 }
 
+pub fn find_unspent_tx_outs(address: &str, unspent_tx_outs: &Vec<UnspentTxOut>) -> Vec<UnspentTxOut> {
+    unspent_tx_outs
+        .into_iter()
+        .filter(|&u_tx_o| u_tx_o.address.eq(address))
+        .map(|v| v.clone())
+        .collect::<Vec<UnspentTxOut>>()
+}
+
 pub fn create_transaction(
     receiver_address: &str,
     amount: usize,
@@ -110,11 +118,7 @@ pub fn create_transaction(
     unspent_tx_outs: &Vec<UnspentTxOut>,
 ) -> Result<Transaction, AppError> {
     let my_address = wallet.public_key.as_str();
-    let my_unspent_tx_outs = unspent_tx_outs
-        .into_iter()
-        .filter(|&u_tx_o| u_tx_o.address.eq(my_address))
-        .map(|v| v.clone())
-        .collect::<Vec<UnspentTxOut>>();
+    let my_unspent_tx_outs = find_unspent_tx_outs(my_address, unspent_tx_outs);
     let (included_unspent_tx_outs, left_over_amount) = find_tx_outs_for_amount(&my_unspent_tx_outs, amount)?;
 
     let tx_ins = included_unspent_tx_outs
@@ -273,6 +277,41 @@ mod test {
 
         assert_eq!(get_balance("03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b", &unspent_tx_outs), 150);
         assert_eq!(get_balance("03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40", &unspent_tx_outs), 50);
+    }
+
+    #[test]
+    fn test_find_unspent_tx_outs() {
+        let unspent_tx_outs = vec![
+            UnspentTxOut::new(
+                "f0ab1700e79b5f4c120062a791e7e69150577fea3ba9da15179025b3d2c061ea".to_string(),
+                0,
+                "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "05f756fca4edb257e7ba26a4377246fcbef6de9e948886dad91355cdbfc32d9e".to_string(),
+                0,
+                "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "69202784cf6c645b87027eb1ccc0500609182f9f76f5be6e2fbe60bb1037b6ed".to_string(),
+                0,
+                "03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192".to_string(),
+                50,
+            ),
+            UnspentTxOut::new(
+                "03cbad07a30fa3c44cf3709e005149c5b41464070c15e783589d937a071f62930b".to_string(),
+                0,
+                "03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40".to_string(),
+                50,
+            ),
+        ];
+        let found_unspent_tx_outs = find_unspent_tx_outs("03196c144d93ba0ca200221b507312a41c67eafb9b0d9b9348b286a693969b8192", &unspent_tx_outs);
+        assert_eq!(found_unspent_tx_outs.len(), 3);
+
+        let found_unspent_tx_outs = find_unspent_tx_outs("03b375875391f1dcd5af49e64a477d1be23ccbd0c7765bdde1b46072fb3703ec40", &unspent_tx_outs);
+        assert_eq!(found_unspent_tx_outs.len(), 1);
     }
 
     #[test]

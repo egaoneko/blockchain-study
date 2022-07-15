@@ -29,8 +29,9 @@ impl fmt::Display for AppError {
         let message = match self.code {
             1000 => "Fail to add block with invalid block",
             2000 => "Fail to sign in",
-            2001 => "Fail to process transactions",
-            2002 => "Fail to send transactions",
+            2001 => "Fail to process transactions with invalid transactions structure",
+            2002 => "Fail to process transactions block transactions",
+            2003 => "Fail to send transactions",
             3000 => "Fail to read private key",
             3001 => "Fail to create private key",
             3002 => "Fail to write private key",

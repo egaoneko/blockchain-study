@@ -4,7 +4,7 @@ use rocket_contrib::json::Json;
 use rocket_cors::{Cors, CorsOptions};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{Block, BroadcastEvents, Config, routes, UnspentTxOut, Wallet};
+use crate::{Block, BroadcastEvents, Config, routes, Transaction, UnspentTxOut, Wallet};
 use crate::errors::ApiError;
 
 #[catch(404)]
@@ -23,11 +23,13 @@ pub fn launch_http(
     config: &Config,
     blockchain: &Arc<RwLock<Vec<Block>>>,
     unspent_tx_outs: &Arc<RwLock<Vec<UnspentTxOut>>>,
+    transaction_pool: &Arc<RwLock<Vec<Transaction>>>,
     wallet: &Arc<RwLock<Wallet>>,
     broadcast_sender: UnboundedSender<BroadcastEvents>,
 ) {
     let b = Arc::clone(blockchain);
     let u = Arc::clone(unspent_tx_outs);
+    let t = Arc::clone(transaction_pool);
     let w = Arc::clone(wallet);
     let config = rocket::config::Config::build(rocket::config::Environment::Development).port(config.http_port).finalize().unwrap();
 
@@ -40,12 +42,17 @@ pub fn launch_http(
                 routes::mine_block,
                 routes::address,
                 routes::balance,
+                routes::unspent_transaction_outputs,
+                routes::my_unspent_transaction_outputs,
                 routes::mine_transaction,
-                routes::peers
+                routes::send_transaction,
+                routes::transaction_pool,
+                routes::add_peer
             ])
             .attach(cors_fairing())
             .manage(b)
             .manage(u)
+            .manage(t)
             .manage(w)
             .manage(broadcast_sender)
             .launch();

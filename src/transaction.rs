@@ -397,7 +397,7 @@ pub fn process_transactions(transactions: &Vec<Transaction>, unspent_tx_outs: &V
     }
 
     if !get_is_valid_block_transactions(transactions, unspent_tx_outs, block_index) {
-        return Err(AppError::new(2001));
+        return Err(AppError::new(2002));
     }
 
     Ok(update_unspent_tx_outs(transactions, unspent_tx_outs))
